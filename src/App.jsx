@@ -16,17 +16,6 @@ import {
   getFirestore, collection, doc, setDoc, onSnapshot, deleteDoc 
 } from 'firebase/firestore';
 
-// ==========================================
-// 🔒 BLISTER SISTERS SECURITY WHITELIST 🔒
-// Add the approved email addresses here. 
-// ONLY these emails will be allowed to sign up!
-// ==========================================
-const ALLOWED_EMAILS = [
-  'lauralynnemassie@gmail.com',
-  'jessica@example.com',
-  'admin@blistersisters.com'
-];
-
 // The shared secret code they need to register for the first time
 const TEAM_INVITE_CODE = 'ENDURE24';
 
@@ -384,14 +373,13 @@ export default function App() {
   const totalWorkouts = useMemo(() => {
     return TRAINING_PLAN.reduce((acc, week) => acc + week.days.filter(d => d.workout !== "REST").length, 0);
   }, []);
-  const completionPct = Math.round((completedLogIds.length / totalWorkouts) * 100) || 0;
 
   // Determine current day and past unlogged days for late-builders
   const { week: currentWeekNum, dayIndex, diffDays } = useMemo(() => getCurrentTrainingDay(), []);
   
-  const { todayWorkout, pastUnlogged } = useMemo(() => {
+  const { todayWorkout, pastWorkoutIds } = useMemo(() => {
     let today = null;
-    let missed = [];
+    let pastIds = [];
     
     let dayCounter = 0;
     for (const w of TRAINING_PLAN) {
@@ -399,14 +387,21 @@ export default function App() {
         if (w.week === currentWeekNum && dayCounter % 7 === dayIndex) {
           today = { day: d, week: w };
         }
-        if (dayCounter < diffDays && d.workout !== "REST" && !completedLogIds.includes(d.id)) {
-          missed.push({ day: d, week: w });
+        // Automatically consider past workouts as "completed" to prevent forced backfilling
+        if (dayCounter < diffDays && d.workout !== "REST") {
+          pastIds.push(d.id);
         }
         dayCounter++;
       }
     }
-    return { todayWorkout: today, pastUnlogged: missed };
-  }, [currentWeekNum, dayIndex, diffDays, completedLogIds]);
+    return { todayWorkout: today, pastWorkoutIds: pastIds };
+  }, [currentWeekNum, dayIndex, diffDays]);
+
+  const effectivelyCompletedIds = useMemo(() => {
+    return Array.from(new Set([...completedLogIds, ...pastWorkoutIds]));
+  }, [completedLogIds, pastWorkoutIds]);
+
+  const completionPct = Math.round((effectivelyCompletedIds.length / totalWorkouts) * 100) || 0;
 
   // Handlers
   const openLogModal = (dayData, weekData) => {
@@ -476,9 +471,9 @@ export default function App() {
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto p-4 py-8">
-        {view === 'dashboard' && <DashboardView logs={logs} openLogModal={openLogModal} totalRuns={totalRuns} todayWorkout={todayWorkout} pastUnlogged={pastUnlogged} completedLogIds={completedLogIds} totalMiles={totalMiles} completionPct={completionPct} profile={profile || {}} toggleStrava={toggleStrava} />}
-        {view === 'plan' && <PlanView logs={logs} completedLogIds={completedLogIds} openLogModal={openLogModal} getLogForDay={getLogForDay} currentWeekNum={currentWeekNum} />}
-        {view === 'stats' && <StatsView totalMiles={totalMiles} totalDuration={totalDuration} totalElevation={totalElevation} totalRuns={totalRuns} logs={logs} completedLogIds={completedLogIds} totalWorkouts={totalWorkouts} completionPct={completionPct} />}
+        {view === 'dashboard' && <DashboardView logs={logs} openLogModal={openLogModal} totalRuns={totalRuns} todayWorkout={todayWorkout} completedLogIds={effectivelyCompletedIds} totalMiles={totalMiles} completionPct={completionPct} profile={profile || {}} toggleStrava={toggleStrava} currentWeekNum={currentWeekNum} diffDays={diffDays} />}
+        {view === 'plan' && <PlanView logs={logs} completedLogIds={effectivelyCompletedIds} openLogModal={openLogModal} getLogForDay={getLogForDay} currentWeekNum={currentWeekNum} />}
+        {view === 'stats' && <StatsView totalMiles={totalMiles} totalDuration={totalDuration} totalElevation={totalElevation} totalRuns={totalRuns} logs={logs} completedLogIds={effectivelyCompletedIds} totalWorkouts={totalWorkouts} completionPct={completionPct} />}
         {view === 'team' && <TeamView profiles={teamProfiles} relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile} />}
       </main>
 
@@ -522,7 +517,7 @@ export default function App() {
 
 // --- VIEWS ---
 
-function DashboardView({ logs, openLogModal, totalRuns, todayWorkout, pastUnlogged, completedLogIds, totalMiles, completionPct, profile, toggleStrava }) {
+function DashboardView({ logs, openLogModal, totalRuns, todayWorkout, completedLogIds, totalMiles, completionPct, profile, toggleStrava, currentWeekNum, diffDays }) {
   // Find next upcoming if today is complete/rest
   let nextWorkoutDay = null;
   let nextWorkoutWeek = null;
@@ -561,6 +556,10 @@ function DashboardView({ logs, openLogModal, totalRuns, todayWorkout, pastUnlogg
     return () => clearInterval(timer);
   }, []);
 
+  // Calculate current day number (capped between 1 and 105)
+  const currentDayNumber = Math.min(Math.max(diffDays + 1, 1), 105);
+  const dateString = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       
@@ -575,11 +574,17 @@ function DashboardView({ logs, openLogModal, totalRuns, todayWorkout, pastUnlogg
         
         <div className="relative z-10 flex flex-col md:flex-row justify-between h-full min-h-[140px]">
           <div>
+            <div className="inline-flex items-center space-x-2 bg-pink-500/20 border border-pink-500/30 text-pink-400 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4 backdrop-blur-sm">
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>Day {currentDayNumber} of 105</span>
+              <span className="text-pink-500/50">•</span>
+              <span>{dateString}</span>
+            </div>
             <h2 className="text-3xl font-black text-white mb-2 tracking-tight">
               Ready to crush it{profile?.displayName ? `, ${profile.displayName.split(' ')[0]}` : ''}?
             </h2>
             <p className="text-neutral-300 max-w-md font-medium text-sm leading-relaxed drop-shadow-md">
-              You're {totalRuns} sessions deep. The miles are adding up and the blister count is rising! Keep pushing, sister.
+              You're in Week {currentWeekNum} of the bootcamp. The miles are adding up and the blister count is rising! Keep pushing, sister.
             </p>
           </div>
         </div>
@@ -637,21 +642,6 @@ function DashboardView({ logs, openLogModal, totalRuns, todayWorkout, pastUnlogg
           </button>
         </div>
       </div>
-
-      {/* Past Unlogged Alerts */}
-      {pastUnlogged.length > 0 && (
-        <div className="bg-amber-950/30 border border-amber-900/50 rounded-2xl p-5 flex items-start space-x-4">
-          <div className="bg-amber-500/20 text-amber-500 p-2 rounded-xl mt-1">
-            <History className="w-5 h-5" />
-          </div>
-          <div>
-            <h4 className="text-amber-500 font-bold text-sm tracking-wide">Backfill Your Training!</h4>
-            <p className="text-neutral-400 text-xs mt-1 leading-relaxed">
-              You have <strong className="text-amber-400">{pastUnlogged.length} past workouts</strong> from earlier weeks that aren't logged yet. Tap the plan tab to log them and catch up your stats!
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Up Next Card */}
       <div>
@@ -1325,14 +1315,11 @@ function AuthScreen({ auth }) {
 
     try {
       if (!isLogin) {
-        // SECURITY CHECK 1: Team Invite Code
+        // SECURITY CHECK: Team Invite Code
         if (inviteCode !== TEAM_INVITE_CODE) {
           throw new Error("Whoops! Incorrect Team Invite Code.");
         }
-        // SECURITY CHECK 2! Reject if email is not on the list.
-        if (!ALLOWED_EMAILS.includes(email.toLowerCase().trim())) {
-          throw new Error("Whoops! That email isn't on the approved Blister Sisters list.");
-        }
+        
         await createUserWithEmailAndPassword(auth, email, password);
       } else {
         await signInWithEmailAndPassword(auth, email, password);
