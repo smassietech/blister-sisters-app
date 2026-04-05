@@ -3,21 +3,33 @@ import {
   Flame, Calendar, Activity, ChevronRight, CheckCircle2, 
   Trophy, Plus, X, Heart, TrendingUp, AlertCircle, Watch,
   Zap, Wind, Mountain, MapPin, History, Navigation, Map, CalendarDays,
-  Users, PlayCircle, PlusCircle, ArrowUpRight, Target, Settings
+  Users, PlayCircle, PlusCircle, ArrowUpRight, Target, Settings, LogOut
 } from 'lucide-react';
 import { 
   initializeApp 
 } from 'firebase/app';
 import { 
-  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
+  getAuth, signInWithCustomToken, onAuthStateChanged, 
+  createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut
 } from 'firebase/auth';
 import { 
   getFirestore, collection, doc, setDoc, onSnapshot, deleteDoc 
 } from 'firebase/firestore';
 
+// ==========================================
+// 🔒 BLISTER SISTERS SECURITY WHITELIST 🔒
+// Add the approved email addresses here. 
+// ONLY these emails will be allowed to sign up!
+// ==========================================
+const ALLOWED_EMAILS = [
+  'sarah@example.com',
+  'jessica@example.com',
+  'admin@blistersisters.com'
+];
+
 // --- DATA: Endure 24 Bootcamp Plan ---
-const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); // Calculates current week dynamically 
-const EVENT_DATE = new Date('2026-06-06T12:00:00'); // Endure 24 Reading Start Time
+const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); 
+const EVENT_DATE = new Date('2026-06-06T12:00:00'); 
 
 const AVATAR_EMOJIS = ['🏃‍♀️', '🐆', '🦄', '⚡', '🦋', '🦊', '🔥', '👑', '😎', '💪'];
 const AVATAR_BGS = [
@@ -253,11 +265,11 @@ export default function App() {
   useEffect(() => {
     const initAuth = async () => {
       try {
+        // If we are in the Canvas preview, we automatically log you in securely to test the app.
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
         }
+        // If we are deployed on the web, it will skip this and show the secure Email Login Screen!
       } catch (err) {
         console.error("Auth Error:", err);
       }
@@ -266,7 +278,7 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) setLoading(false);
+      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -303,8 +315,10 @@ export default function App() {
       });
       setTeamProfiles(pData);
       
-      if (!foundCurrentUser) {
-        setShowProfileSetup(true); // Prompt to setup name
+      // Prompt to setup name if they logged in but haven't created a profile yet
+      // Ignore this requirement if they are the Canvas test user (isAnonymous)
+      if (!foundCurrentUser && !user.isAnonymous) {
+        setShowProfileSetup(true); 
       }
       setLoading(false);
     }, (error) => {
@@ -403,6 +417,11 @@ export default function App() {
     );
   }
 
+  // Show Auth Screen if not logged in
+  if (!user) {
+    return <AuthScreen auth={auth} />;
+  }
+
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans selection:bg-pink-500 selection:text-white pb-24 md:pb-0">
       {/* Header */}
@@ -429,6 +448,10 @@ export default function App() {
                 <Settings className="w-5 h-5" />
               </button>
             )}
+            {/* Always show logout button */}
+            <button onClick={() => signOut(auth)} title="Sign Out" className="p-2 text-neutral-400 hover:text-pink-500 transition-colors bg-neutral-900 rounded-full border border-neutral-800 ml-2">
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </header>
@@ -1261,6 +1284,108 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
             className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm uppercase tracking-widest rounded-xl py-3 shadow-[0_0_20px_rgba(219,39,119,0.3)] hover:shadow-[0_0_25px_rgba(219,39,119,0.5)] transition-all flex justify-center items-center"
           >
             {saving ? 'Saving...' : existingLog ? 'Update Log' : 'Save Run'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- AUTH SCREEN (LOGIN / SIGNUP) ---
+function AuthScreen({ auth }) {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (!isLogin) {
+        // SECURITY CHECK! Reject if email is not on the list.
+        if (!ALLOWED_EMAILS.includes(email.toLowerCase().trim())) {
+          throw new Error("Whoops! That email isn't on the approved Blister Sisters list.");
+        }
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err) {
+      setError(err.message.replace('Firebase:', '').trim());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
+      {/* Background graphic */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity"
+        style={{ backgroundImage: `url('https://images.unsplash.com/photo-1502224562085-639556652f33?auto=format&fit=crop&w=1200&q=80')` }}
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/80 to-transparent"></div>
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-pink-500/20 rounded-full blur-[100px] pointer-events-none"></div>
+
+      <div className="bg-neutral-900/80 backdrop-blur-md border border-pink-500/20 rounded-3xl p-8 max-w-sm w-full shadow-2xl relative z-10">
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.3)] mb-4">
+            <Flame className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-2xl font-black tracking-tight text-white uppercase italic">Blister Sisters</h1>
+          <p className="text-xs text-pink-400 font-medium tracking-widest mt-1">Secure HQ Login</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/50 text-red-400 text-xs font-bold p-3 rounded-xl mb-6 flex items-start text-center">
+            <AlertCircle className="w-4 h-4 mr-2 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 mb-1 block">Email Address</label>
+            <input 
+              type="email" 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-neutral-950/50 border border-neutral-800 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all font-medium"
+              placeholder="name@example.com"
+              required
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 mb-1 block">Password</label>
+            <input 
+              type="password" 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-neutral-950/50 border border-neutral-800 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all font-medium"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={loading}
+            className="w-full bg-pink-600 hover:bg-pink-500 text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-[0_0_20px_rgba(219,39,119,0.3)] hover:shadow-[0_0_25px_rgba(219,39,119,0.5)] transition-all mt-4"
+          >
+            {loading ? 'Authenticating...' : (isLogin ? 'Login to HQ' : 'Sign Up')}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <button 
+            onClick={() => { setIsLogin(!isLogin); setError(''); }}
+            className="text-xs font-medium text-neutral-400 hover:text-white transition-colors"
+          >
+            {isLogin ? "Not on the team yet? Sign up here." : "Already registered? Login here."}
           </button>
         </div>
       </div>
