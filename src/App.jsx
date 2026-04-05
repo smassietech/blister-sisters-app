@@ -22,7 +22,7 @@ import {
 // ONLY these emails will be allowed to sign up!
 // ==========================================
 const ALLOWED_EMAILS = [
-  'sarah@example.com',
+  'lauralynnemassie@gmail.com',
   'jessica@example.com',
   'admin@blistersisters.com'
 ];
