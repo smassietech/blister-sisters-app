@@ -27,11 +27,18 @@ const ALLOWED_EMAILS = [
   'admin@blistersisters.com'
 ];
 
+// The shared secret code they need to register for the first time
+const TEAM_INVITE_CODE = 'ENDURE24';
+
 // --- DATA: Endure 24 Bootcamp Plan ---
 const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); 
 const EVENT_DATE = new Date('2026-06-06T12:00:00'); 
 
-const AVATAR_EMOJIS = ['🏃‍♀️', '🐆', '🦄', '⚡', '🦋', '🦊', '🔥', '👑', '😎', '💪'];
+const AVATAR_EMOJIS = [
+  '🏃‍♀️', '🐆', '🦄', '⚡', '🦋', '🦊', '🔥', '👑', '😎', '💪',
+  '🚀', '🌟', '💖', '🦖', '🐢', '🥑', '🍉', '🤘', '💃', '💫',
+  '👟', '🏆', '🌈', '🐾', '🏔️', '🏃🏻‍♀️', '🏃🏽‍♀️', '🏃🏾‍♀️', '🏃🏿‍♀️', '💯'
+];
 const AVATAR_BGS = [
   'from-pink-500 to-teal-400',
   'from-purple-500 to-pink-500',
@@ -57,7 +64,7 @@ const getCurrentTrainingDay = () => {
 
 const TRAINING_PLAN = [
   {
-    week: 1, dateStr: "24th Feb", stage: "build",
+    week: 1, dateStr: "23rd Feb", stage: "build",
     days: [
       { id: "w1-mon", day: "Monday", type: "run", workout: "50 min easy run (conversational pace) (4-5/10 effort)" },
       { id: "w1-tue", day: "Tuesday", type: "rest", workout: "REST" },
@@ -69,7 +76,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 2, dateStr: "3rd March", stage: "build",
+    week: 2, dateStr: "2nd March", stage: "build",
     days: [
       { id: "w2-mon", day: "Monday", type: "recovery", workout: "30 mins VERY EASY Recovery run. Listen to your body, go at a pace that requires little effort (3/10)" },
       { id: "w2-tue", day: "Tuesday", type: "rest", workout: "REST" },
@@ -81,7 +88,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 3, dateStr: "10th March", stage: "build",
+    week: 3, dateStr: "9th March", stage: "build",
     days: [
       { id: "w3-mon", day: "Monday", type: "recovery", workout: "40 mins VERY EASY recovery run" },
       { id: "w3-tue", day: "Tuesday", type: "rest", workout: "REST" },
@@ -93,7 +100,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 4, dateStr: "17th March", stage: "build",
+    week: 4, dateStr: "16th March", stage: "build",
     days: [
       { id: "w4-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" },
       { id: "w4-tue", day: "Tuesday", type: "run", workout: "60 min easy" },
@@ -105,7 +112,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 5, dateStr: "24th March", stage: "build",
+    week: 5, dateStr: "23rd March", stage: "build",
     days: [
       { id: "w5-mon", day: "Monday", type: "recovery", workout: "30 min recovery. very easy" },
       { id: "w5-tue", day: "Tuesday", type: "rest", workout: "REST" },
@@ -117,7 +124,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 6, dateStr: "31st March", stage: "step back",
+    week: 6, dateStr: "30th March", stage: "step back",
     days: [
       { id: "w6-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" },
       { id: "w6-tue", day: "Tuesday", type: "run", workout: "60 min easy" },
@@ -129,7 +136,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 7, dateStr: "7th April", stage: "build",
+    week: 7, dateStr: "6th April", stage: "build",
     days: [
       { id: "w7-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" },
       { id: "w7-tue", day: "Tuesday", type: "run", workout: "45 mins easy" },
@@ -141,7 +148,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 8, dateStr: "14th April", stage: "build",
+    week: 8, dateStr: "13th April", stage: "build",
     days: [
       { id: "w8-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" },
       { id: "w8-tue", day: "Tuesday", type: "run", workout: "60 min easy" },
@@ -153,7 +160,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 9, dateStr: "21st April", stage: "step back",
+    week: 9, dateStr: "20th April", stage: "step back",
     days: [
       { id: "w9-mon", day: "Monday", type: "recovery", workout: "40 mins recovery very easy" },
       { id: "w9-tue", day: "Tuesday", type: "rest", workout: "REST" },
@@ -165,7 +172,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 10, dateStr: "28th April", stage: "peak",
+    week: 10, dateStr: "27th April", stage: "peak",
     days: [
       { id: "w10-mon", day: "Monday", type: "run", workout: "30 min easy" },
       { id: "w10-tue", day: "Tuesday", type: "run", workout: "60 min at or below MAF" },
@@ -177,7 +184,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 11, dateStr: "5th May", stage: "peak",
+    week: 11, dateStr: "4th May", stage: "peak",
     days: [
       { id: "w11-mon", day: "Monday", type: "recovery", workout: "40 mins recovery very easy" },
       { id: "w11-tue", day: "Tuesday", type: "run", workout: "45 mins easy" },
@@ -189,7 +196,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 12, dateStr: "12th May", stage: "peak",
+    week: 12, dateStr: "11th May", stage: "peak",
     days: [
       { id: "w12-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" },
       { id: "w12-tue", day: "Tuesday", type: "run", workout: "50 mins easy" },
@@ -201,7 +208,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 13, dateStr: "19th May", stage: "taper week 1",
+    week: 13, dateStr: "18th May", stage: "taper week 1",
     days: [
       { id: "w13-mon", day: "Monday", type: "recovery", workout: "30 mins recovery very easy" },
       { id: "w13-tue", day: "Tuesday", type: "run", workout: "60 min easy" },
@@ -213,7 +220,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 14, dateStr: "26th May", stage: "taper week 2",
+    week: 14, dateStr: "25th May", stage: "taper week 2",
     days: [
       { id: "w14-mon", day: "Monday", type: "recovery", workout: "30 mins recovery very easy" },
       { id: "w14-tue", day: "Tuesday", type: "run", workout: "60 min easy" },
@@ -225,7 +232,7 @@ const TRAINING_PLAN = [
     ]
   },
   {
-    week: 15, dateStr: "2nd June", stage: "taper week 3",
+    week: 15, dateStr: "1st June", stage: "taper week 3",
     days: [
       { id: "w15-mon", day: "Monday", type: "rest", workout: "REST" },
       { id: "w15-tue", day: "Tuesday", type: "run", workout: "40 min easy" },
@@ -260,6 +267,17 @@ export default function App() {
   const app = useMemo(() => initializeApp(firebaseConfig), [firebaseConfig]);
   const auth = useMemo(() => getAuth(app), [app]);
   const db = useMemo(() => getFirestore(app), [app]);
+
+  // Set Favicon dynamically
+  useEffect(() => {
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23e11d48'/%3E%3Cpath d='M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
+  }, []);
 
   // Auth Effect
   useEffect(() => {
@@ -1296,6 +1314,7 @@ function AuthScreen({ auth }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -1306,7 +1325,11 @@ function AuthScreen({ auth }) {
 
     try {
       if (!isLogin) {
-        // SECURITY CHECK! Reject if email is not on the list.
+        // SECURITY CHECK 1: Team Invite Code
+        if (inviteCode !== TEAM_INVITE_CODE) {
+          throw new Error("Whoops! Incorrect Team Invite Code.");
+        }
+        // SECURITY CHECK 2! Reject if email is not on the list.
         if (!ALLOWED_EMAILS.includes(email.toLowerCase().trim())) {
           throw new Error("Whoops! That email isn't on the approved Blister Sisters list.");
         }
@@ -1348,6 +1371,19 @@ function AuthScreen({ auth }) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {!isLogin && (
+            <div>
+              <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 mb-1 block">Team Invite Code</label>
+              <input 
+                type="text" 
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                className="w-full bg-neutral-950/50 border border-neutral-800 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all font-medium"
+                placeholder="Enter the secret team code"
+                required
+              />
+            </div>
+          )}
           <div>
             <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 mb-1 block">Email Address</label>
             <input 
@@ -1366,7 +1402,7 @@ function AuthScreen({ auth }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-neutral-950/50 border border-neutral-800 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all font-medium"
-              placeholder="••••••••"
+              placeholder={isLogin ? "••••••••" : "Create a personal password"}
               required
             />
           </div>
