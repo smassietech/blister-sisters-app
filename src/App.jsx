@@ -472,7 +472,7 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-4xl mx-auto p-4 py-8">
         {view === 'dashboard' && <DashboardView logs={logs} openLogModal={openLogModal} totalRuns={totalRuns} todayWorkout={todayWorkout} completedLogIds={effectivelyCompletedIds} totalMiles={totalMiles} completionPct={completionPct} profile={profile || {}} toggleStrava={toggleStrava} currentWeekNum={currentWeekNum} diffDays={diffDays} />}
-        {view === 'plan' && <PlanView logs={logs} completedLogIds={effectivelyCompletedIds} openLogModal={openLogModal} getLogForDay={getLogForDay} currentWeekNum={currentWeekNum} />}
+        {view === 'plan' && <PlanView logs={logs} completedLogIds={effectivelyCompletedIds} openLogModal={openLogModal} getLogForDay={getLogForDay} currentWeekNum={currentWeekNum} diffDays={diffDays} />}
         {view === 'stats' && <StatsView totalMiles={totalMiles} totalDuration={totalDuration} totalElevation={totalElevation} totalRuns={totalRuns} logs={logs} completedLogIds={effectivelyCompletedIds} totalWorkouts={totalWorkouts} completionPct={completionPct} />}
         {view === 'team' && <TeamView profiles={teamProfiles} relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile} />}
       </main>
@@ -703,7 +703,7 @@ function DashboardView({ logs, openLogModal, totalRuns, todayWorkout, completedL
   );
 }
 
-function PlanView({ logs, completedLogIds, openLogModal, getLogForDay, currentWeekNum }) {
+function PlanView({ logs, completedLogIds, openLogModal, getLogForDay, currentWeekNum, diffDays }) {
   const [expandedWeek, setExpandedWeek] = useState(currentWeekNum > 0 && currentWeekNum <= 15 ? currentWeekNum : 1);
 
   return (
@@ -713,7 +713,76 @@ function PlanView({ logs, completedLogIds, openLogModal, getLogForDay, currentWe
         <span className="text-xs font-bold bg-neutral-800 text-neutral-400 px-3 py-1 rounded-full uppercase tracking-wider">15 Weeks</span>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
+        
+        {/* Training Density Heatmap */}
+        <div className="bg-neutral-900 rounded-3xl border border-neutral-800 p-5 md:p-6 overflow-hidden shadow-lg">
+          <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-widest flex items-center mb-5">
+            <Activity className="w-4 h-4 mr-2 text-teal-400" /> Training Density
+          </h3>
+          
+          <div className="overflow-x-auto pb-4 scrollbar-hide">
+            <div className="flex gap-2 min-w-max items-start">
+              {/* Day Labels */}
+              <div className="flex flex-col gap-2 text-[9px] font-bold text-neutral-500 uppercase tracking-widest mr-1 mt-5 justify-between h-full">
+                <span className="h-4 md:h-5 flex items-center">Mon</span>
+                <span className="h-4 md:h-5 flex items-center"></span>
+                <span className="h-4 md:h-5 flex items-center">Wed</span>
+                <span className="h-4 md:h-5 flex items-center"></span>
+                <span className="h-4 md:h-5 flex items-center">Fri</span>
+                <span className="h-4 md:h-5 flex items-center"></span>
+                <span className="h-4 md:h-5 flex items-center">Sun</span>
+              </div>
+              
+              {/* Heatmap Grid */}
+              {TRAINING_PLAN.map((week, wIndex) => (
+                <div key={week.week} className="flex flex-col gap-2">
+                  <div className="text-[8px] font-bold text-neutral-600 text-center mb-1">W{week.week}</div>
+                  {week.days.map((day, dIndex) => {
+                    const globalDayIndex = (wIndex * 7) + dIndex;
+                    const isRest = day.workout === "REST";
+                    const isLogged = logs.find(l => l.dayId === day.id);
+                    const isPast = globalDayIndex < diffDays;
+                    const isToday = globalDayIndex === diffDays;
+
+                    let cellClass = "w-4 h-4 md:w-5 md:h-5 rounded-[4px] transition-all cursor-pointer ";
+
+                    if (isLogged) {
+                        cellClass += "bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.4)] hover:bg-pink-400";
+                    } else if (isRest) {
+                        cellClass += "bg-neutral-800/40 hover:bg-neutral-800 cursor-default";
+                    } else if (isToday) {
+                        cellClass += "bg-neutral-900 border border-pink-500 animate-pulse ring-2 ring-pink-500/20";
+                    } else if (isPast) {
+                        cellClass += "bg-teal-900/30 border border-teal-800/40 hover:border-teal-500/50";
+                    } else {
+                        cellClass += "bg-neutral-950 border border-neutral-800 hover:border-pink-500/50";
+                    }
+
+                    return (
+                        <button
+                            key={day.id}
+                            onClick={() => !isRest && openLogModal(day, week)}
+                            className={cellClass}
+                            title={`${day.day}, Week ${week.week} - ${day.workout}`}
+                            disabled={isRest}
+                        />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          {/* Heatmap Legend */}
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-[9px] md:text-[10px] font-bold text-neutral-500 uppercase tracking-widest pt-4 border-t border-neutral-800/50">
+            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-neutral-800/40 mr-1.5"></div> Rest</span>
+            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-neutral-950 border border-neutral-800 mr-1.5"></div> Planned</span>
+            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-teal-900/30 border border-teal-800/40 mr-1.5"></div> Auto-Completed</span>
+            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-pink-500 shadow-[0_0_5px_rgba(236,72,153,0.5)] mr-1.5"></div> Logged</span>
+          </div>
+        </div>
+
         {TRAINING_PLAN.map((week) => (
           <div key={week.week} className="bg-neutral-900 rounded-2xl border border-neutral-800 overflow-hidden transition-all">
             {/* Week Header */}
