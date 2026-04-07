@@ -24,6 +24,7 @@ const DEBUG_FORCE_RACE_DAY = false;
 const TEAM_INVITE_CODE = 'ENDURE24';
 const LAP_DISTANCE = 5; // Miles
 const MI_TO_KM = 1.60934;
+const PLAN_VERSION = 1; // Increment this number whenever you update DEFAULT_TRAINING_PLAN to force sync everyone's app!
 
 // --- DATE CONSTANTS ---
 const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); 
@@ -44,21 +45,141 @@ const displayPace = (minPerMile, unitPref) => unitPref === 'km' ? minPerMile / M
 
 // --- OFFICIAL PDF ALIGNED PLAN ---
 const DEFAULT_TRAINING_PLAN = [
-  { week: 1, dateStr: "23rd Feb", stage: "build", days: [ { id: "w1-mon", day: "Monday", type: "run", workout: "50 min easy run (conversational pace) (4-5/10 effort)" }, { id: "w1-tue", day: "Tuesday", type: "rest", workout: "REST" }, { id: "w1-wed", day: "Wednesday", type: "interval", workout: "25 minutes easy 6 x 3 minutes HM pace with 25 minutes cool down easy" }, { id: "w1-thu", day: "Thursday", type: "run", workout: "30 mins easy" }, { id: "w1-fri", day: "Friday", type: "run", workout: "40 mins easy" }, { id: "w1-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w1-sun", day: "Sunday", type: "run", workout: "Strong finish run: 50 minutes easy pace then 20 minutes pick up pace to finish strong at a pace you can maintain." } ] },
-  { week: 2, dateStr: "2nd March", stage: "build", days: [ { id: "w2-mon", day: "Monday", type: "recovery", workout: "30 mins VERY EASY Recovery run Listen to your body go at a pace that requires little effort (3/10)" }, { id: "w2-tue", day: "Tuesday", type: "rest", workout: "REST" }, { id: "w2-wed", day: "Wednesday", type: "interval", workout: "Warm up 15 mins 4 x 5 minute intervals at HM pace with 3 minutes jog between intervals cool down 10 mins" }, { id: "w2-thu", day: "Thursday", type: "run", workout: "40 mins easy" }, { id: "w2-fri", day: "Friday", type: "run", workout: "60 mins easy" }, { id: "w2-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w2-sun", day: "Sunday", type: "run", workout: "25 minutes easy 15 minutes at HM pace 15 minutes easy 15 min at HM pace then 25 minutes easy" } ] },
-  { week: 3, dateStr: "9th March", stage: "build", days: [ { id: "w3-mon", day: "Monday", type: "recovery", workout: "40 mins VERY EASY recovery run" }, { id: "w3-tue", day: "Tuesday", type: "rest", workout: "REST" }, { id: "w3-wed", day: "Wednesday", type: "hills", workout: "Hill sprints: warm up 2 miles, 8-10x 40 secs up hill. recovery on way back down. Cool down 2 miles" }, { id: "w3-thu", day: "Thursday", type: "run", workout: "40 mins Easy" }, { id: "w3-fri", day: "Friday", type: "run", workout: "Double day: 30 min + 60 min easy. Can be combined as one 90 minute run if preferred." }, { id: "w3-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w3-sun", day: "Sunday", type: "run", workout: "Long run: 2 hours easy pace" } ] },
-  { week: 4, dateStr: "16th March", stage: "build", days: [ { id: "w4-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, { id: "w4-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, { id: "w4-wed", day: "Wednesday", type: "interval", workout: "Morning Intervals 8 x 2mins 10k pace 60-90 sec recovery between sets afternoon 30 minutes. recovery run very easy" }, { id: "w4-thu", day: "Thursday", type: "run", workout: "60 min easy" }, { id: "w4-fri", day: "Friday", type: "run", workout: "Double day: 40 min + 60 min easy." }, { id: "w4-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w4-sun", day: "Sunday", type: "run", workout: "Strong finish run: 90 minutes easy, then 25 minutes pick up pace to finish strong at a pace you can maintain" } ] },
-  { week: 5, dateStr: "24th March", stage: "step back", days: [ { id: "w5-mon", day: "Monday", type: "recovery", workout: "30 min recovery. very easy" }, { id: "w5-tue", day: "Tuesday", type: "rest", workout: "REST" }, { id: "w5-wed", day: "Wednesday", type: "interval", workout: "75 min easy moming intervals option one: 4 x 6 mins HM pace with 3 minutes jog between" }, { id: "w5-thu", day: "Thursday", type: "recovery", workout: "60 min recovery very easy" }, { id: "w5-fri", day: "Friday", type: "run", workout: "40 min easy" }, { id: "w5-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w5-sun", day: "Sunday", type: "run", workout: "long run: 90 min easy" } ] },
-  { week: 6, dateStr: "31st March", stage: "build", days: [ { id: "w6-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, { id: "w6-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, { id: "w6-wed", day: "Wednesday", type: "hills", workout: "Hills 15 mins warm up 6-8 sets of 2 mins up recovery on way down 15 mins cool down. afternoon 40 minutes. recovery run" }, { id: "w6-thu", day: "Thursday", type: "run", workout: "60 min easy" }, { id: "w6-fri", day: "Friday", type: "run", workout: "30 min + 60 min easy So two runs in one day. Can be comfined as one 90 minute run, like all other double days if preffered" }, { id: "w6-sat", day: "Saturday", type: "run", workout: "30 mins easy" }, { id: "w6-sun", day: "Sunday", type: "run", workout: "14-15 miles easy pace" } ] },
-  { week: 7, dateStr: "7th April", stage: "build", days: [ { id: "w7-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, { id: "w7-tue", day: "Tuesday", type: "run", workout: "45 mins easy" }, { id: "w7-wed", day: "Wednesday", type: "interval", workout: "Warm up 1 mile 4 x 1 mile at HM pace 5 mins recovery bewteen sets Cool down 1 mile afternoon 35 minutes recovery run very easy" }, { id: "w7-thu", day: "Thursday", type: "recovery", workout: "70 min recovery very easy" }, { id: "w7-fri", day: "Friday", type: "run", workout: "40 min + 50 min easy" }, { id: "w7-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w7-sun", day: "Sunday", type: "run", workout: "20 mins easy pace 30 mins moderate pace 30 mins easy pace" } ] },
-  { week: 8, dateStr: "14th April", stage: "build", days: [ { id: "w8-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, { id: "w8-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, { id: "w8-wed", day: "Wednesday", type: "interval", workout: "30 mins moderate pace 20 mins easy pace" }, { id: "w8-thu", day: "Thursday", type: "recovery", workout: "70 min recovery very easy" }, { id: "w8-fri", day: "Friday", type: "run", workout: "45 min easy" }, { id: "w8-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w8-sun", day: "Sunday", type: "run", workout: "16-17 miles easy pace" } ] },
-  { week: 9, dateStr: "21st April", stage: "step back", days: [ { id: "w9-mon", day: "Monday", type: "recovery", workout: "40 mins recovery very easy" }, { id: "w9-tue", day: "Tuesday", type: "rest", workout: "REST" }, { id: "w9-wed", day: "Wednesday", type: "run", workout: "Double day: 40 min + 40 min easy" }, { id: "w9-thu", day: "Thursday", type: "rest", workout: "REST" }, { id: "w9-fri", day: "Friday", type: "run", workout: "60 min easy" }, { id: "w9-sat", day: "Saturday", type: "run", workout: "35 mins easy" }, { id: "w9-sun", day: "Sunday", type: "run", workout: "Long run: 100 mins easy" } ] },
-  { week: 10, dateStr: "28th April", stage: "peak", days: [ { id: "w10-mon", day: "Monday", type: "run", workout: "30 min easy" }, { id: "w10-tue", day: "Tuesday", type: "run", workout: "60 min at or below MAF" }, { id: "w10-wed", day: "Wednesday", type: "interval", workout: "2 mile warm up 5 x 1km at 10k pace 2 min rec between sets 2 miles cool down afternoon 30 mins recovery run" }, { id: "w10-thu", day: "Thursday", type: "recovery", workout: "40 min recovery very easy" }, { id: "w10-fri", day: "Friday", type: "run", workout: "40+30 min easy" }, { id: "w10-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w10-sun", day: "Sunday", type: "run", workout: "Long run 18 miles: 6m very easy, 6m at 10-20s faster, 6m at 10-20s faster." } ] },
-  { week: 11, dateStr: "5th May", stage: "peak", days: [ { id: "w11-mon", day: "Monday", type: "recovery", workout: "40 mins recovery very easy" }, { id: "w11-tue", day: "Tuesday", type: "run", workout: "45 mins easy" }, { id: "w11-wed", day: "Wednesday", type: "hills", workout: "morning run 45 mins fartleks or hills afternoon 60 mins recovery very easy" }, { id: "w11-thu", day: "Thursday", type: "run", workout: "60 min easy" }, { id: "w11-fri", day: "Friday", type: "run", workout: "40 min + 40 min easy" }, { id: "w11-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w11-sun", day: "Sunday", type: "run", workout: "2 hours 30 Total easy pace Increase pace for last 30 mins if feeling good" } ] },
-  { week: 12, dateStr: "12th May", stage: "peak", days: [ { id: "w12-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, { id: "w12-tue", day: "Tuesday", type: "run", workout: "50 mins easy" }, { id: "w12-wed", day: "Wednesday", type: "interval", workout: "2 Mile warm up 15 x200m 1 min recovery 2 mile cool down" }, { id: "w12-thu", day: "Thursday", type: "run", workout: "60 min easy" }, { id: "w12-fri", day: "Friday", type: "run", workout: "40 min +30 min easy" }, { id: "w12-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w12-sun", day: "Sunday", type: "run", workout: "20-22 miles easy pace" } ] },
-  { week: 13, dateStr: "19th May", stage: "taper week 1", days: [ { id: "w13-mon", day: "Monday", type: "recovery", workout: "30 mins recovery very easy" }, { id: "w13-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, { id: "w13-wed", day: "Wednesday", type: "interval", workout: "Morning intervals 1 mile warm up 3 x 1 miles 10k pace with a 3 min jog between sets 1 miles cool down afternoon 40 minutes recovery run below MAF" }, { id: "w13-thu", day: "Thursday", type: "recovery", workout: "60 min recovery very easy" }, { id: "w13-fri", day: "Friday", type: "run", workout: "40 min 60 min easy" }, { id: "w13-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w13-sun", day: "Sunday", type: "run", workout: "Tempo run 30 mins easy 15 mins at HM pace 15 mins easy 15 mins at HM pace" } ] },
-  { week: 14, dateStr: "26th May", stage: "taper week 2", days: [ { id: "w14-mon", day: "Monday", type: "recovery", workout: "30 mins recovery very easy" }, { id: "w14-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, { id: "w14-wed", day: "Wednesday", type: "hills", workout: "moming run-hills 15 min warm up 8-10 x 60 sec hill recovery on way down 15 min cool down" }, { id: "w14-thu", day: "Thursday", type: "recovery", workout: "45 min recovery very easy" }, { id: "w14-fri", day: "Friday", type: "run", workout: "60 mins easy" }, { id: "w14-sat", day: "Saturday", type: "run", workout: "50 mins easy" }, { id: "w14-sun", day: "Sunday", type: "run", workout: "70 mins easy" } ] },
-  { week: 15, dateStr: "2nd June", stage: "taper week 3", days: [ { id: "w15-mon", day: "Monday", type: "rest", workout: "REST" }, { id: "w15-tue", day: "Tuesday", type: "run", workout: "40 min easy" }, { id: "w15-wed", day: "Wednesday", type: "interval", workout: "10 mins warm up 25 mins of fartleks 10 mins cool down" }, { id: "w15-thu", day: "Thursday", type: "rest", workout: "REST" }, { id: "w15-fri", day: "Friday", type: "run", workout: "30 mins easy" }, { id: "w15-sat", day: "Saturday", type: "rest", workout: "REST" }, { id: "w15-sun", day: "Sunday", type: "race", workout: "ENDURE 24" } ] }
+  { week: 1, dateStr: "24th Feb", stage: "build", days: [ 
+    { id: "w1-mon", day: "Monday", type: "run", workout: "50 min easy run\n(conversational pace)\n(4-5 / 10 effort)" }, 
+    { id: "w1-tue", day: "Tuesday", type: "rest", workout: "REST" }, 
+    { id: "w1-wed", day: "Wednesday", type: "interval", workout: "25 minutes easy\n6 x 3 minutes @ HM pace with 2 min rec\n25 minutes cool down easy" }, 
+    { id: "w1-thu", day: "Thursday", type: "run", workout: "30 mins easy" }, 
+    { id: "w1-fri", day: "Friday", type: "run", workout: "40 min easy" }, 
+    { id: "w1-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w1-sun", day: "Sunday", type: "run", workout: "Strong finish run: 50 minutes easy pace then 20 minutes pick up pace to finish strong at a pace you can maintain." } 
+  ] },
+  { week: 2, dateStr: "3rd March", stage: "build", days: [ 
+    { id: "w2-mon", day: "Monday", type: "recovery", workout: "30 mins VERY EASY\nRecovery run\nListen to your body\ngo at a pace that requires little effort (3/10)" }, 
+    { id: "w2-tue", day: "Tuesday", type: "rest", workout: "REST" }, 
+    { id: "w2-wed", day: "Wednesday", type: "interval", workout: "Warm up 15 mins\n4 x 5 minute intervals at HM pace with 3 minutes jog between intervals\ncool down 10 mins" }, 
+    { id: "w2-thu", day: "Thursday", type: "run", workout: "40 mins easy" }, 
+    { id: "w2-fri", day: "Friday", type: "run", workout: "60 mins easy" }, 
+    { id: "w2-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w2-sun", day: "Sunday", type: "run", workout: "25 minutes easy\n15 minutes at HM pace\n15 minutes easy\n15 min at HM pace\nthen 25 minutes easy" } 
+  ] },
+  { week: 3, dateStr: "10th March", stage: "build", days: [ 
+    { id: "w3-mon", day: "Monday", type: "recovery", workout: "40 mins VERY EASY recovery run" }, 
+    { id: "w3-tue", day: "Tuesday", type: "rest", workout: "REST" }, 
+    { id: "w3-wed", day: "Wednesday", type: "hills", workout: "Hill sprints:\nwarm up 2 miles\n8-10x 40 secs up hill\nrecovery on way back down\nCool down 2 miles" }, 
+    { id: "w3-thu", day: "Thursday", type: "run", workout: "40 mins Easy" }, 
+    { id: "w3-fri", day: "Friday", type: "run", workout: "30 min + 60 min\nSo two runs in one day. Can be combined as one 90 minute run, like all other double days if preferred" }, 
+    { id: "w3-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w3-sun", day: "Sunday", type: "run", workout: "long run 2 hours at easy pace" } 
+  ] },
+  { week: 4, dateStr: "17th March", stage: "build", days: [ 
+    { id: "w4-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, 
+    { id: "w4-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, 
+    { id: "w4-wed", day: "Wednesday", type: "interval", workout: "Morning Intervals\n8 x 2mins @ 10k pace\n60-90 sec recovery between sets\n\nafternoon 30 minutes recovery run very easy" }, 
+    { id: "w4-thu", day: "Thursday", type: "recovery", workout: "60 min recovery very easy pace" }, 
+    { id: "w4-fri", day: "Friday", type: "run", workout: "40 min + 60 min easy" }, 
+    { id: "w4-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w4-sun", day: "Sunday", type: "run", workout: "Strong finish run: 90 minutes easy, then 25 minutes pick up pace to finish strong at a pace you can maintain" } 
+  ] },
+  { week: 5, dateStr: "24th March", stage: "step back", days: [ 
+    { id: "w5-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, 
+    { id: "w5-tue", day: "Tuesday", type: "rest", workout: "REST" }, 
+    { id: "w5-wed", day: "Wednesday", type: "interval", workout: "75 min easy" }, 
+    { id: "w5-thu", day: "Thursday", type: "run", workout: "60 min easy" }, 
+    { id: "w5-fri", day: "Friday", type: "run", workout: "40 min easy" }, 
+    { id: "w5-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w5-sun", day: "Sunday", type: "run", workout: "long run: 90 min easy" } 
+  ] },
+  { week: 6, dateStr: "31st March", stage: "build", days: [ 
+    { id: "w6-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, 
+    { id: "w6-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, 
+    { id: "w6-wed", day: "Wednesday", type: "interval", workout: "morning intervals option one:\n4 x 6 mins @ HM pace with 3 minutes jog between\n\nafternoon 40 minutes recovery run" }, 
+    { id: "w6-thu", day: "Thursday", type: "recovery", workout: "60 min recovery very easy" }, 
+    { id: "w6-fri", day: "Friday", type: "run", workout: "60 min easy" }, 
+    { id: "w6-sat", day: "Saturday", type: "run", workout: "30 min easy" }, 
+    { id: "w6-sun", day: "Sunday", type: "run", workout: "14-15 miles easy pace" } 
+  ] },
+  { week: 7, dateStr: "7th April", stage: "build", days: [ 
+    { id: "w7-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, 
+    { id: "w7-tue", day: "Tuesday", type: "run", workout: "45 mins easy" }, 
+    { id: "w7-wed", day: "Wednesday", type: "hills", workout: "Hills\n15 mins warm up\n6-8 sets of:\n2 mins up\nrecovery on way down\n15 mins cool down" }, 
+    { id: "w7-thu", day: "Thursday", type: "run", workout: "60 min easy" }, 
+    { id: "w7-fri", day: "Friday", type: "run", workout: "40 min + 50 min easy" }, 
+    { id: "w7-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w7-sun", day: "Sunday", type: "run", workout: "20 mins easy pace\n30 mins moderate pace\n30 mins easy pace\n30 mins moderate pace\n20 mins easy pace" } 
+  ] },
+  { week: 8, dateStr: "14th April", stage: "build", days: [ 
+    { id: "w8-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, 
+    { id: "w8-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, 
+    { id: "w8-wed", day: "Wednesday", type: "interval", workout: "Warm up 1 mile\n4 x 1 mile at HM pace\n5 mins recovery bewteen sets\nCool down 1 mile\n\nafternoon 35 minutes recovery run very easy" }, 
+    { id: "w8-thu", day: "Thursday", type: "recovery", workout: "70 min recovery very easy" }, 
+    { id: "w8-fri", day: "Friday", type: "run", workout: "45 min easy" }, 
+    { id: "w8-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w8-sun", day: "Sunday", type: "run", workout: "16-17 miles easy pace" } 
+  ] },
+  { week: 9, dateStr: "21st April", stage: "step back", days: [ 
+    { id: "w9-mon", day: "Monday", type: "recovery", workout: "40 mins recovery very easy" }, 
+    { id: "w9-tue", day: "Tuesday", type: "rest", workout: "REST" }, 
+    { id: "w9-wed", day: "Wednesday", type: "run", workout: "40 min + 40 min easy" }, 
+    { id: "w9-thu", day: "Thursday", type: "rest", workout: "REST" }, 
+    { id: "w9-fri", day: "Friday", type: "run", workout: "60 min easy" }, 
+    { id: "w9-sat", day: "Saturday", type: "run", workout: "35 mins easy" }, 
+    { id: "w9-sun", day: "Sunday", type: "run", workout: "100 mins easy" } 
+  ] },
+  { week: 10, dateStr: "28th April", stage: "peak", days: [ 
+    { id: "w10-mon", day: "Monday", type: "run", workout: "30 min easy" }, 
+    { id: "w10-tue", day: "Tuesday", type: "run", workout: "60 min at or below MAF" }, 
+    { id: "w10-wed", day: "Wednesday", type: "interval", workout: "2 mile warm up\n5 x 1km at 10k pace\n2 min rec between sets\n2 miles cool down\n\nafternoon 30 mins recovery run" }, 
+    { id: "w10-thu", day: "Thursday", type: "recovery", workout: "40 min recovery very easy" }, 
+    { id: "w10-fri", day: "Friday", type: "run", workout: "40+30 min easy" }, 
+    { id: "w10-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w10-sun", day: "Sunday", type: "run", workout: "18 miles\n6 miles at very easy pace\n6 miles at 10-20 sec faster\n6 miles at 10-20 sec faster\n(only increase pace if feeling good)" } 
+  ] },
+  { week: 11, dateStr: "5th May", stage: "peak", days: [ 
+    { id: "w11-mon", day: "Monday", type: "recovery", workout: "40 mins recovery very easy" }, 
+    { id: "w11-tue", day: "Tuesday", type: "run", workout: "45 mins easy" }, 
+    { id: "w11-wed", day: "Wednesday", type: "hills", workout: "morning run 45 mins fartleks or hills\n\nafternoon 60 mins recovery very easy" }, 
+    { id: "w11-thu", day: "Thursday", type: "run", workout: "60 min easy" }, 
+    { id: "w11-fri", day: "Friday", type: "run", workout: "40 min + 40 min easy" }, 
+    { id: "w11-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w11-sun", day: "Sunday", type: "run", workout: "2 hours 30 Total easy pace\nIncrease pace for last 30 mins if feeling good" } 
+  ] },
+  { week: 12, dateStr: "12th May", stage: "peak", days: [ 
+    { id: "w12-mon", day: "Monday", type: "recovery", workout: "30 min recovery very easy" }, 
+    { id: "w12-tue", day: "Tuesday", type: "run", workout: "50 mins easy" }, 
+    { id: "w12-wed", day: "Wednesday", type: "interval", workout: "2 Mile warm up\n15 x 200m\n1 min recovery\n2 mile cool down" }, 
+    { id: "w12-thu", day: "Thursday", type: "run", workout: "60 min easy" }, 
+    { id: "w12-fri", day: "Friday", type: "run", workout: "40 min + 30 min easy" }, 
+    { id: "w12-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w12-sun", day: "Sunday", type: "run", workout: "20-22 miles easy pace" } 
+  ] },
+  { week: 13, dateStr: "19th May", stage: "taper week 1", days: [ 
+    { id: "w13-mon", day: "Monday", type: "recovery", workout: "30 mins recovery very easy" }, 
+    { id: "w13-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, 
+    { id: "w13-wed", day: "Wednesday", type: "interval", workout: "Morning intervals\n1 mile warm up\n3 x 1 miles @ 10k pace\nwith a 3 min jog between sets\n1 miles cool down\n\nafternoon 40 minutes recovery run below MAF" }, 
+    { id: "w13-thu", day: "Thursday", type: "recovery", workout: "60 min recovery very easy" }, 
+    { id: "w13-fri", day: "Friday", type: "run", workout: "40 min + 60 min easy" }, 
+    { id: "w13-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w13-sun", day: "Sunday", type: "run", workout: "Tempo run\n30 mins easy\n15 mins at HM pace\n15 mins easy\n15 mins at HM pace\n30 mins easy" } 
+  ] },
+  { week: 14, dateStr: "26th May", stage: "taper week 2", days: [ 
+    { id: "w14-mon", day: "Monday", type: "recovery", workout: "30 mins recovery very easy" }, 
+    { id: "w14-tue", day: "Tuesday", type: "run", workout: "60 min easy" }, 
+    { id: "w14-wed", day: "Wednesday", type: "hills", workout: "morning run-hills\n15 min warm up\n8-10 x 60 sec hill\nrecovery on way down\n15 min cool down" }, 
+    { id: "w14-thu", day: "Thursday", type: "recovery", workout: "45 min recovery very easy" }, 
+    { id: "w14-fri", day: "Friday", type: "run", workout: "60 mins easy" }, 
+    { id: "w14-sat", day: "Saturday", type: "run", workout: "50 mins easy" }, 
+    { id: "w14-sun", day: "Sunday", type: "run", workout: "70 mins easy" } 
+  ] },
+  { week: 15, dateStr: "2nd June", stage: "taper week 3", days: [ 
+    { id: "w15-mon", day: "Monday", type: "rest", workout: "REST" }, 
+    { id: "w15-tue", day: "Tuesday", type: "run", workout: "40 min easy" }, 
+    { id: "w15-wed", day: "Wednesday", type: "interval", workout: "10 mins warm up\n25 mins of fartleks\n10 mins cool down" }, 
+    { id: "w15-thu", day: "Thursday", type: "rest", workout: "REST" }, 
+    { id: "w15-fri", day: "Friday", type: "run", workout: "30 mins easy" }, 
+    { id: "w15-sat", day: "Saturday", type: "rest", workout: "REST" }, 
+    { id: "w15-sun", day: "Sunday", type: "race", workout: "ENDURE 24! READING 🔥" } 
+  ] }
 ];
 
 const AVATAR_EMOJIS_LIST = [
@@ -164,10 +285,10 @@ export default function App() {
     });
 
     const unsubPlan = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), async (s) => {
-      if (s.exists()) {
+      if (s.exists() && s.data().version === PLAN_VERSION) {
         setTrainingPlan(s.data().weeks);
       } else {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { weeks: DEFAULT_TRAINING_PLAN });
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN });
       }
       setLoading(false);
     });
@@ -204,12 +325,12 @@ export default function App() {
     const updatedPlan = [...trainingPlan];
     const day = updatedPlan[weekIndex].days.find(d => d.id === dayId);
     if (day) day.workout = newWorkoutText;
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { weeks: updatedPlan });
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: updatedPlan });
     setPlanEditDay(null);
   };
 
   const resetPlanToDefault = async () => {
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { weeks: DEFAULT_TRAINING_PLAN });
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN });
   };
 
   const toggleStrava = async () => {
@@ -316,6 +437,40 @@ function RelayBoard({ relayLaps, user, db, appId, currentProfile, profiles = [],
     await setDoc(getLapRef(lapNumber), { status: 'complete', endTime: Date.now() }, { merge: true });
   };
 
+  const unclaimLap = async (lapNumber) => {
+    await setDoc(getLapRef(lapNumber), {
+      lapNumber, runnerId: null, runnerName: null, status: 'open', startTime: null, endTime: null, updatedAt: Date.now()
+    }, { merge: true });
+  };
+
+  const deleteLap = async (lapNumber) => {
+    await deleteDoc(getLapRef(lapNumber));
+  };
+
+  const createNextLap = async () => {
+    const nextLapNum = maxLap + 1;
+    await setDoc(getLapRef(nextLapNum), { lapNumber: nextLapNum, runnerId: null, runnerName: null, status: 'open', createdAt: Date.now() });
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { totalLaps: nextLapNum });
+  };
+
+  const assignLap = async (lapNumber, assigneeId) => {
+    if (assigneeId === 'unclaim') {
+      await unclaimLap(lapNumber);
+      setEditingLapId(null);
+      return;
+    }
+    const assignee = profiles.find(p => p.id === assigneeId);
+    if (!assignee) return;
+    await setDoc(getLapRef(lapNumber), {
+      lapNumber,
+      runnerId: assignee.id,
+      runnerName: String(assignee.displayName || "Unknown Sister"),
+      status: 'claimed',
+      updatedAt: Date.now()
+    }, { merge: true });
+    setEditingLapId(null);
+  };
+
   const formatForInput = (timestamp) => {
     if (!timestamp) return '';
     const d = new Date(timestamp);
@@ -361,12 +516,6 @@ function RelayBoard({ relayLaps, user, db, appId, currentProfile, profiles = [],
       setDeleteConfirm(lapNumber);
       setTimeout(() => setDeleteConfirm(null), 3000);
     }
-  };
-
-  const createNextLap = async () => {
-    const nextLapNum = maxLap + 1;
-    await setDoc(getLapRef(nextLapNum), { lapNumber: nextLapNum, runnerId: null, runnerName: null, status: 'open', createdAt: Date.now() });
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { totalLaps: nextLapNum });
   };
 
   const getEstStartTime = (lapNum, displayLapsArray) => {
@@ -603,7 +752,7 @@ function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
       setTimeout(() => setResetConfirm(false), 3000);
       return;
     }
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { weeks: DEFAULT_TRAINING_PLAN });
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN });
     onClose();
   };
 
@@ -736,7 +885,7 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
         {todayWorkout ? (
           <div onClick={() => openLogModal(todayWorkout.day, todayWorkout.week)} className="group cursor-pointer bg-neutral-900 border border-white/5 hover:border-pink-500/50 rounded-3xl p-6 transition-all relative overflow-hidden shadow-2xl">
             <p className="text-[10px] font-black bg-pink-500/20 text-pink-400 px-4 py-1.5 rounded-full uppercase mb-4 inline-block tracking-widest border border-pink-500/20">Week {Number(todayWorkout.week.week)} • {String(todayWorkout.day.day)}</p>
-            <p className="text-xl font-bold text-neutral-100 leading-relaxed italic pr-8">{String(todayWorkout.day.workout)}</p>
+            <p className="text-xl font-bold text-neutral-100 leading-relaxed italic pr-8 whitespace-pre-line">{String(todayWorkout.day.workout)}</p>
             <ArrowUpRight className="absolute right-6 top-6 w-6 h-6 text-neutral-700 group-hover:text-pink-500 transition-colors" />
             <div className="mt-6 flex items-center text-[10px] text-pink-500/60 uppercase font-black tracking-[0.2em] group-hover:text-pink-400 transition-colors"><Activity className="w-4 h-4 mr-2" /> Tap to log session</div>
           </div>
@@ -850,7 +999,7 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
                     }
                     
                     return (
-                      <button key={day.id} onClick={() => !isRest && openLogModal(day, week)} className={cellClass} disabled={isRest} title={`${dayNames[dIndex]}: ${String(day.workout)}`}>
+                      <button key={day.id} onClick={() => !isRest && openLogModal(day, week)} className={cellClass} disabled={isRest} title={`${dayNames[dIndex]}: ${String(day.workout).replace(/\n/g, ' ')}`}>
                         {isEndure24 && <Flame className={`w-3.5 h-3.5 ${isLogged ? 'text-white' : 'text-orange-900 drop-shadow-[0_0_5px_rgba(0,0,0,0.8)]'}`} />}
                       </button>
                     );
@@ -897,7 +1046,7 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
                         {isCompleted ? <CheckCircle2 className="w-7 h-7 text-teal-400 drop-shadow-[0_0_8px_rgba(45,212,191,0.4)]" /> : isRest ? <div className="w-3 h-3 rounded-full bg-neutral-700 mt-2"></div> : <div className="w-7 h-7 rounded-full border-2 border-neutral-500 hover:border-pink-500 transition-colors mt-1"></div>}
                       </div>
                       <div className={`flex-1 ${!isRest ? 'cursor-pointer' : ''}`} onClick={() => !isEditMode && !isRest && openLogModal(day, week)}>
-                        <p className={`text-base font-medium leading-relaxed ${isRest ? 'text-neutral-400 italic opacity-80' : 'text-neutral-100'}`}>{String(day.workout)}</p>
+                        <p className={`text-base font-medium leading-relaxed whitespace-pre-line ${isRest ? 'text-neutral-400 italic opacity-80' : 'text-neutral-100'}`}>{String(day.workout)}</p>
                         {isCompleted && logData && !isQuickLog && (
                           <div className="mt-4 p-4 bg-neutral-900/50 border border-teal-500/20 rounded-2xl shadow-inner">
                             <div className="flex flex-wrap gap-y-2 items-center space-x-5 text-[11px] font-black uppercase tracking-widest text-teal-400">
@@ -1042,7 +1191,6 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
   const [vibe, setVibe] = useState(existingLog?.isQuickLog ? '😎' : (existingLog?.vibe || '😎'));
   const [actualDate, setActualDate] = useState(existingLog?.actualDate || new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
   
   const handleSave = async (e) => {
     e.preventDefault(); if (!user) return; setSaving(true);
@@ -1052,11 +1200,7 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
 
   const handleDelete = async () => {
     if (!user) return;
-    if (!deleteConfirm) {
-      setDeleteConfirm(true);
-      setTimeout(() => setDeleteConfirm(false), 3000);
-      return;
-    }
+    if (!window.confirm("Delete this log?")) return;
     setSaving(true);
     try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); }
   };
@@ -1076,7 +1220,7 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
         <div className="flex justify-between items-center p-7 border-b border-white/5"><div><h3 className="text-2xl font-black text-white italic">Log Run</h3><p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.2em] mt-1.5">Week {day.week} • {dayString}</p></div><button onClick={onClose} className="p-3 bg-neutral-800 text-neutral-400 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button></div>
         <div className="p-7 overflow-y-auto">
           {profile?.stravaConnected && (!existingLog || existingLog.isQuickLog) && (<button type="button" onClick={handleStravaSync} className="w-full mb-6 bg-[#FC4C02]/10 border border-[#FC4C02]/30 text-[#FC4C02] hover:bg-[#FC4C02]/20 py-4 rounded-2xl flex items-center justify-center text-[10px] font-black uppercase tracking-widest transition-colors"><StravaIcon className="w-5 h-5 mr-3" /> Pull Latest from Strava</button>)}
-          <div className="bg-pink-500/10 border border-pink-500/20 rounded-2xl p-5 mb-8 text-sm text-neutral-200 font-medium leading-relaxed italic">"{String(day.workout)}"</div>
+          <div className="bg-pink-500/10 border border-pink-500/20 rounded-2xl p-5 mb-8 text-sm text-neutral-200 font-medium leading-relaxed italic whitespace-pre-line">"{String(day.workout)}"</div>
           <form id="log-form" onSubmit={handleSave} className="space-y-6">
             <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Date Completed</label><input type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold [color-scheme:dark]" /></div>
             <div className="grid grid-cols-2 gap-5">
@@ -1089,8 +1233,8 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
         </div>
         <div className="p-7 border-t border-white/5 bg-neutral-900/50 flex gap-4 pb-safe">
           {existingLog && (
-            <button type="button" onClick={handleDelete} disabled={saving} className={`border font-black px-5 rounded-2xl transition-all shadow-lg flex items-center justify-center ${deleteConfirm ? 'bg-rose-500 text-white border-rose-500' : 'bg-neutral-800 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-500 border-neutral-700 hover:border-rose-500/50'}`} title="Delete Log">
-              {deleteConfirm ? 'Sure?' : <X className="w-5 h-5" />}
+            <button type="button" onClick={handleDelete} disabled={saving} className={`border font-black px-5 rounded-2xl transition-all shadow-lg flex items-center justify-center bg-neutral-800 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-500 border-neutral-700 hover:border-rose-500/50`} title="Delete Log">
+               <X className="w-5 h-5" />
             </button>
           )}
           <button type="submit" form="log-form" disabled={saving} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl py-5 shadow-[0_0_25px_rgba(219,39,119,0.3)] transition-all transform active:scale-95">{saving ? 'Transmitting...' : 'Save Log'}</button>
@@ -1112,15 +1256,15 @@ function AuthScreen({ auth }) {
     <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
       <div className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity grayscale" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} />
       <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative z-10">
-        <div className="flex flex-col items-center mb-10 relative z-10"><div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6"><Flame className="w-8 h-8 text-white" /></div><h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1><p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">Endure 24</p></div>
+        <div className="flex flex-col items-center mb-10 relative z-10"><div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6"><Flame className="w-8 h-8 text-white" /></div><h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1><p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">Elite Headquarters</p></div>
         {error && (<div className="bg-rose-500/10 border border-rose-500/50 text-rose-400 text-[10px] font-black uppercase p-4 rounded-2xl mb-8 text-center tracking-widest">{error}</div>)}
         <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
           {!isLogin && (<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Team Invite Code</label><input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black tracking-widest" placeholder="Enter secret code" required /></div>)}
           <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
           <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
-          <button type="submit" disabled={loading} className="w-full bg-pink-600 hover:bg-pink-500 text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px_rgba(236,72,153,0.3)] mt-6 transition-all">{loading ? 'Processing...' : (isLogin ? 'Login' : 'Join')}</button>
+          <button type="submit" disabled={loading} className="w-full bg-pink-600 hover:bg-pink-500 text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px_rgba(236,72,153,0.3)] mt-6 transition-all">{loading ? 'Processing...' : (isLogin ? 'Login to HQ' : 'Join Training')}</button>
         </form>
-        <button onClick={() => setIsLogin(!isLogin)} className="w-full mt-8 text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] hover:text-white transition-colors relative z-10">{isLogin ? "Sign up here" : "Return to Login"}</button>
+        <button onClick={() => setIsLogin(!isLogin)} className="w-full mt-8 text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] hover:text-white transition-colors relative z-10">{isLogin ? "Not on the team? Sign up here" : "Return to Login"}</button>
       </div>
     </div>
   );
