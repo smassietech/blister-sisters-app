@@ -4,7 +4,8 @@ import {
   Trophy, Plus, X, Heart, TrendingUp, AlertCircle, Watch,
   Zap, Wind, Mountain, MapPin, History, Navigation, Map, CalendarDays,
   Users, PlayCircle, PlusCircle, ArrowUpRight, Target, Settings, LogOut,
-  Timer, Gauge, ListChecks, Info, Edit3, Lock, Unlock, Save, RefreshCw
+  Timer, Gauge, ListChecks, Info, Edit3, Lock, Unlock, Save, RefreshCw,
+  Ghost, ShieldCheck
 } from 'lucide-react';
 import { 
   initializeApp 
@@ -22,9 +23,15 @@ import {
 // ==========================================
 const DEBUG_FORCE_RACE_DAY = false; 
 const TEAM_INVITE_CODE = 'ENDURE24';
+const ADMIN_SECRET_KEY = 'SISTER_HQ_2026'; 
+
+// 🔌 STRAVA MASTER SWITCH
+// Set this to false to hide all Strava buttons/logos until approved.
+const SHOW_STRAVA_FEATURES = false; 
+
 const LAP_DISTANCE = 5; // Miles
 const MI_TO_KM = 1.60934;
-const PLAN_VERSION = 6; // 🚀 Upgraded schema for explicit skip support on auto-completed weeks
+const PLAN_VERSION = 6; 
 
 // ==========================================
 // 🔗 STRAVA API CREDENTIALS
@@ -211,6 +218,35 @@ const StravaIcon = ({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" /></svg>
 );
 
+const PoweredByStrava = ({ className = "" }) => (
+  <div className={`flex items-center space-x-1.5 opacity-60 ${className}`}>
+    <span className="text-[7px] text-white font-bold tracking-[0.1em]" style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif" }}>POWERED BY</span>
+    <StravaIcon className="w-3.5 h-3.5 text-white" />
+    <span className="text-[11px] text-white font-black tracking-tighter" style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif" }}>STRAVA</span>
+  </div>
+);
+
+const StravaConnectButton = ({ onClick }) => (
+  <button onClick={onClick} className="h-[48px] hover:opacity-90 transition-opacity border-none outline-none bg-transparent p-0 flex-shrink-0">
+    <img 
+      src="btn_strava_connect_with_orange.svg" 
+      alt="Connect with Strava" 
+      className="h-[48px] w-auto shadow-sm rounded-lg"
+      onError={(e) => {
+        e.target.style.display = 'none';
+        const parent = e.target.parentElement;
+        if (parent && !parent.querySelector('.fallback-btn')) {
+          const fallback = document.createElement('div');
+          fallback.className = 'fallback-btn h-[48px] px-6 bg-[#FC4C02] text-white rounded-lg flex items-center font-bold text-[14px]';
+          fallback.style.fontFamily = 'Helvetica Neue, Helvetica, Arial, sans-serif';
+          fallback.innerText = 'Connect with Strava';
+          parent.appendChild(fallback);
+        }
+      }}
+    />
+  </button>
+);
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -256,7 +292,7 @@ export default function App() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
-    if (code && user && STRAVA_CLIENT_ID && STRAVA_CLIENT_SECRET) {
+    if (code && user && STRAVA_CLIENT_ID && STRAVA_CLIENT_SECRET && SHOW_STRAVA_FEATURES) {
       const exchangeToken = async () => {
          try {
            const res = await fetch('https://www.strava.com/oauth/token', {
@@ -311,7 +347,7 @@ export default function App() {
 
     const unsubProfiles = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'profiles'), (s) => {
       const pData = s.docs.map(d => ({ id: d.id, ...d.data() }));
-      setTeamProfiles(pData);
+      setTeamProfiles(pData.filter(p => p.role !== 'admin'));
       const myP = pData.find(p => p.id === user.uid);
       if (myP) setProfile(myP);
       else if (!user.isAnonymous) setShowProfileSetup(true);
@@ -347,7 +383,6 @@ export default function App() {
     const ids = new Set(logs.filter(l => !l.isSkipped).map(l => l.dayId));
     
     trainingPlan.forEach((w, wIndex) => {
-      // Auto-complete Weeks 1 through 6 (Index 0 to 5) as long as they aren't explicitly skipped
       if (wIndex < 6) { 
         w.days.forEach(d => {
           if ((d.req !== "" || d.opt !== "REST") && !skippedIds.has(d.id)) {
@@ -367,10 +402,8 @@ export default function App() {
 
     trainingPlan.forEach((w, wIndex) => {
       w.days.forEach(d => {
-        // Only consider Key Workouts (req text exists)
         if (d.req && d.req.trim() !== "") {
           keyCount++;
-          // Check if explicitly logged OR auto-completed by being in weeks 1-6
           if (loggedIds.has(d.id) || (wIndex < 6 && !skippedIds.has(d.id))) {
             completedKeyCount++;
           }
@@ -421,7 +454,7 @@ export default function App() {
     }
   };
 
-  if (loading) return <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center text-pink-500 font-sans font-black uppercase tracking-widest"><Watch className="animate-spin w-12 h-12 mb-6" /> Loading...</div>;
+  if (loading) return <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center text-pink-500 font-sans font-black uppercase tracking-widest"><Watch className="animate-spin w-12 h-12 mb-6" /> Mission Control...</div>;
   if (!user) return <AuthScreen auth={auth} />;
 
   return (
@@ -466,7 +499,7 @@ export default function App() {
               logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} 
               openLogModal={openLogModal} getLogForDay={(id)=>logs.find(l=>l.dayId===id && !l.isSkipped)} 
               currentWeekNum={currentWeekNum} diffDays={diffDays} onEditDay={(day, weekIndex) => setPlanEditDay({ ...day, weekIndex })}
-              user={user} db={db} appId={appId}
+              user={user} db={db} appId={appId} profile={profile}
             />
         )}
         {view === 'stats' && <StatsView logs={logs} trainingPlan={trainingPlan} profile={profile} />}
@@ -699,11 +732,11 @@ function RelayBoard({ relayLaps, user, db, appId, currentProfile, profiles = [],
                  </div>
                  <div>
                     <label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Actual Start Time</label>
-                    <input type="datetime-local" className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3 rounded-xl focus:border-pink-500 focus:outline-none [color-scheme:dark]" value={editData.startTime} onChange={e => setEditData({...editData, startTime: e.target.value})} />
+                    <input type="datetime-local" className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-pink-500 font-black text-xs [color-scheme:dark]" value={editData.startTime} onChange={e => setEditData({...editData, startTime: e.target.value})} />
                  </div>
                  <div>
                     <label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Actual Finish Time</label>
-                    <input type="datetime-local" className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3 rounded-xl focus:border-pink-500 focus:outline-none [color-scheme:dark]" value={editData.endTime} onChange={e => setEditData({...editData, endTime: e.target.value})} />
+                    <input type="datetime-local" className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-pink-500 font-black text-xs [color-scheme:dark]" value={editData.endTime} onChange={e => setEditData({...editData, endTime: e.target.value})} />
                  </div>
                </div>
                <div className="flex gap-3 mt-4 pt-4 border-t border-neutral-800">
@@ -740,7 +773,7 @@ function RaceDayPlanView({ relayLaps, user, db, appId, currentProfile, profiles,
         <PlanView 
           logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} 
           openLogModal={openLogModal} getLogForDay={getLogForDay} currentWeekNum={currentWeekNum} 
-          diffDays={diffDays} onEditDay={onEditDay} isArchive={true} user={user} db={db} appId={appId}
+          diffDays={diffDays} onEditDay={onEditDay} isArchive={true} user={user} db={db} appId={appId} profile={currentProfile}
         />
       )}
     </div>
@@ -957,17 +990,38 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-pink-500/30 transition-all"><Activity className="text-pink-500 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{displayDist(totalMiles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Distance Logged ({profile?.unitPref || 'mi'})</div></div></div>
         <div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-teal-500/30 transition-all"><CalendarDays className="text-teal-400 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{Number(timeLeft.days)}d</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Until Race</div></div></div>
-        <div className="col-span-2 bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex items-center justify-between shadow-2xl">
-          <div className="flex items-center space-x-3"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${profile?.stravaConnected ? 'bg-[#FC4C02]/20 text-[#FC4C02]' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}><StravaIcon className="w-6 h-6" /></div><div><h4 className="font-black text-white text-sm">Strava Connect</h4><p className="text-[10px] uppercase font-bold text-neutral-500 mt-0.5 tracking-widest">{profile?.stravaConnected ? 'Status: Active' : (stravaErr ? <span className="text-rose-500">{stravaErr}</span> : 'Status: Offline')}</p></div></div>
-          <button onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} className={`px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${profile?.stravaConnected ? 'bg-neutral-950 border border-neutral-800 text-neutral-500 hover:text-white' : 'bg-[#FC4C02] text-white hover:bg-[#E34402] shadow-[0_0_15px_rgba(252,76,2,0.3)]'}`}>{profile?.stravaConnected ? 'Unlink' : 'Connect'}</button>
-        </div>
+        {SHOW_STRAVA_FEATURES && (
+          <div className="col-span-2 bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex items-center justify-between shadow-2xl">
+            <div className="flex items-center space-x-3">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${profile?.stravaConnected ? 'bg-[#FC4C02] text-white shadow-[0_0_15px_rgba(252,76,2,0.4)]' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}>
+                <StravaIcon className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-black text-white text-sm">Strava Integration</h4>
+                <p className="text-[10px] uppercase font-bold text-neutral-500 mt-0.5 tracking-widest">{profile?.stravaConnected ? 'Status: Connected' : (stravaErr ? <span className="text-rose-500">{stravaErr}</span> : 'Status: Offline')}</p>
+              </div>
+            </div>
+            
+            {profile?.stravaConnected ? (
+              <div className="flex flex-col items-end">
+                <button onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} className="text-[10px] text-neutral-500 hover:text-rose-500 font-bold uppercase tracking-widest mb-1.5 transition-colors">Disconnect</button>
+                <PoweredByStrava />
+              </div>
+            ) : (
+              <StravaConnectButton onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} />
+            )}
+          </div>
+        )}
       </div>
       
       <div>
         <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-500 mb-5 flex items-center"><Flame className="w-4 h-4 mr-2" /> Current Objective</h3>
         {todayWorkout && !isTodayRest ? (
           <div onClick={() => openLogModal(todayWorkout.day, todayWorkout.week)} className="group cursor-pointer bg-neutral-900 border border-white/5 hover:border-pink-500/50 rounded-3xl p-6 transition-all relative overflow-hidden shadow-2xl">
-            <p className="text-[10px] font-black bg-pink-500/20 text-pink-400 px-4 py-1.5 rounded-full uppercase mb-4 inline-block tracking-widest border border-pink-500/20">Week {Number(todayWorkout.week.week)} • {String(todayWorkout.day.day)}</p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[10px] font-black bg-pink-500/20 text-pink-400 px-4 py-1.5 rounded-full uppercase tracking-widest border border-pink-500/20">Week {Number(todayWorkout.week.week)} • {String(todayWorkout.day.day)}</p>
+              <ArrowUpRight className="w-5 h-5 text-neutral-700 group-hover:text-pink-500 transition-colors" />
+            </div>
             
             <div className="space-y-4 relative z-10 pr-8">
               {todayWorkout.day.req && (
@@ -984,7 +1038,6 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
               )}
             </div>
 
-            <ArrowUpRight className="absolute right-6 top-6 w-6 h-6 text-neutral-700 group-hover:text-pink-500 transition-colors" />
             <div className="mt-6 flex items-center text-[10px] text-pink-500/60 uppercase font-black tracking-[0.2em] group-hover:text-pink-400 transition-colors"><Activity className="w-4 h-4 mr-2" /> Tap to log session</div>
           </div>
         ) : (
@@ -998,7 +1051,7 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
   );
 }
 
-function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogForDay, currentWeekNum, diffDays, onEditDay, isArchive = false, user, db, appId }) {
+function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogForDay, currentWeekNum, diffDays, onEditDay, isArchive = false, user, db, appId, profile }) {
   const [expandedWeek, setExpandedWeek] = useState(currentWeekNum > 0 && currentWeekNum <= 15 ? currentWeekNum : 1);
   const [isEditMode, setIsEditMode] = useState(false);
 
@@ -1027,7 +1080,6 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
     
     if (existingLog) {
       if (existingLog.isSkipped) {
-        // Toggle from skipped back to Quick Logged
         await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
           dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString()
         });
@@ -1035,30 +1087,24 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
         const isQuickLog = existingLog.isQuickLog === true || (existingLog.distance === 0 && existingLog.duration === 0 && (!existingLog.notes || existingLog.notes === 'Quick logged') && (!existingLog.vibe || existingLog.vibe === '✅' || existingLog.vibe === '😎' || existingLog.vibe === ''));
         
         if (!isQuickLog) {
-          // It has details, open the modal instead of blindly deleting
           openLogModal(day, week);
           return;
         }
         
-        // It's a quick log. Unticking it.
         if (isAutoCompleted) {
-          // If auto-completed, explicitly mark skipped so it doesn't just reappear
           await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
             dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString()
           });
         } else {
-          // Normal day, just delete the log
           await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id));
         }
       }
     } else {
       if (isAutoCompleted) {
-        // No log exists, but it shows "Done". Unticking means skipping it.
         await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
           dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString()
         });
       } else {
-        // Normal quick log
         await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
           dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString()
         });
@@ -1077,7 +1123,6 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
           <div className="overflow-x-auto pb-4 scrollbar-hide">
             <div className="flex gap-2.5 min-w-max items-start">
               
-              {/* Perfectly Aligned Left Axis */}
               <div className="flex flex-col gap-2 p-1.5 border border-transparent mr-1">
                 <div className="text-[9px] font-black text-center mb-1 uppercase tracking-tighter invisible">W1</div>
                 {['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (
@@ -1093,30 +1138,20 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
                     const isRest = (day.req === "" && day.opt === "REST");
                     const activeLog = logs.find(l => l.dayId === day.id && !l.isSkipped);
                     const isCompleted = completedLogIds.includes(day.id);
-                    const isPast = globalDayIndex < diffDays;
                     const isToday = globalDayIndex === diffDays;
-                    const isEndure24 = wIndex === 14 && dIndex === 6; // The Big Race Day!
+                    const isEndure24 = wIndex === 14 && dIndex === 6;
                     
                     let cellClass = "w-5 h-5 rounded-md transition-all flex items-center justify-center cursor-pointer border-2 ";
                     
-                    if (isEndure24) {
-                       cellClass += "bg-orange-500 border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.8)] z-10 animate-pulse";
-                    } else if (activeLog) {
+                    if (isEndure24) cellClass += "bg-orange-500 border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.8)] z-10 animate-pulse";
+                    else if (activeLog) {
                        const isQuickLog = activeLog?.isQuickLog === true || (activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === ''));
-                       if (isQuickLog) {
-                         cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.5)] scale-105 z-10";
-                       } else {
-                         cellClass += "bg-pink-500 border-pink-400 shadow-[0_0_12px_rgba(236,72,153,0.5)] scale-105 z-10 text-white";
-                       }
-                    } else if (isRest) {
-                       cellClass += "bg-black border-neutral-600 opacity-80 cursor-default";
-                    } else if (isToday) {
-                       cellClass += "bg-neutral-800 border-pink-500 animate-pulse ring-2 ring-pink-500/30 z-10";
-                    } else if (isCompleted) {
-                       cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.3)]";
-                    } else {
-                       cellClass += "bg-neutral-600 border-neutral-400 opacity-70 hover:border-pink-500 hover:opacity-100";
-                    }
+                       if (isQuickLog) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.5)] scale-105 z-10";
+                       else cellClass += "bg-pink-500 border-pink-400 shadow-[0_0_12px_rgba(236,72,153,0.5)] scale-105 z-10 text-white";
+                    } else if (isRest) cellClass += "bg-black border-neutral-600 opacity-80 cursor-default";
+                    else if (isToday) cellClass += "bg-neutral-800 border-pink-500 animate-pulse ring-2 ring-pink-500/30 z-10";
+                    else if (isCompleted) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.3)]";
+                    else cellClass += "bg-neutral-600 border-neutral-400 opacity-70 hover:border-pink-500 hover:opacity-100";
                     
                     return (
                       <button key={day.id} onClick={() => !isRest && openLogModal(day, week)} className={cellClass} disabled={isRest} title={`${dayNames[dIndex]}`}>
@@ -1157,11 +1192,7 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
                   const isQuickLog = activeLog?.isQuickLog === true || (activeLog && activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === ''));
                   return (
                     <div key={day.id} className={`p-5 flex gap-5 transition-colors ${isRest ? 'bg-neutral-950/30' : 'hover:bg-neutral-800/40'}`}>
-                      <div 
-                        className={`flex-shrink-0 flex flex-col items-center pt-1 w-12 ${!isRest ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`}
-                        onClick={(e) => !isRest && toggleQuickLog(e, day, week)}
-                        title={isRest ? "Rest Day" : "Tap to toggle mark as done"}
-                      >
+                      <div className={`flex-shrink-0 flex flex-col items-center pt-1 w-12 ${!isRest ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`} onClick={(e) => !isRest && toggleQuickLog(e, day, week)} title={isRest ? "Rest Day" : "Tap to toggle mark as done"}>
                         <span className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 ${isRest ? 'text-neutral-600' : 'text-neutral-400'}`}>{dayNames[dIndex]}</span>
                         {isCompleted ? <CheckCircle2 className="w-7 h-7 text-teal-400 drop-shadow-[0_0_8px_rgba(45,212,191,0.4)]" /> : isRest ? <div className="w-3 h-3 rounded-full bg-neutral-700 mt-2"></div> : <div className="w-7 h-7 rounded-full border-2 border-neutral-500 hover:border-pink-500 transition-colors mt-1"></div>}
                       </div>
@@ -1189,7 +1220,7 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
                         {isCompleted && activeLog && !isQuickLog && (
                           <div className="mt-2 p-4 bg-neutral-900/80 border border-teal-500/30 rounded-2xl shadow-lg">
                             <div className="flex flex-wrap gap-y-2 items-center space-x-5 text-[11px] font-black uppercase tracking-widest text-teal-400">
-                              {activeLog.distance > 0 && <span>{displayDist(activeLog.distance, user?.unitPref).toFixed(1)} {user?.unitPref || 'mi'}</span>}
+                              {activeLog.distance > 0 && <span>{displayDist(activeLog.distance, profile?.unitPref).toFixed(1)} {profile?.unitPref || 'mi'}</span>}
                               {activeLog.duration > 0 && <span>{activeLog.duration} min</span>}
                               {activeLog.vibe && <span className="text-lg">{String(activeLog.vibe)}</span>}
                             </div>
@@ -1215,124 +1246,19 @@ function EditPlanModal({ day, onClose, onSave }) {
   const [optText, setOptText] = useState(String(day.opt || ''));
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayString = dayNames[day.id.split('-')[1] === 'mon' ? 0 : day.id.split('-')[1] === 'tue' ? 1 : day.id.split('-')[1] === 'wed' ? 2 : day.id.split('-')[1] === 'thu' ? 3 : day.id.split('-')[1] === 'fri' ? 4 : day.id.split('-')[1] === 'sat' ? 5 : 6];
-
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-neutral-900 border border-pink-500/30 rounded-[2rem] p-8 max-w-md w-full shadow-2xl">
-        <h2 className="text-2xl font-black text-white mb-2 flex items-center italic"><Edit3 className="w-6 h-6 mr-3 text-pink-500" /> Edit Workout</h2>
-        <p className="text-[10px] text-pink-500 uppercase font-black tracking-[0.2em] mb-6">{dayString} • Week {Number(day.weekIndex) + 1}</p>
-        
-        <div className="space-y-4 mb-8">
-          <div>
-            <label className="text-[10px] font-black text-blue-400 uppercase block mb-2 tracking-widest">Required (Blue Box)</label>
-            <textarea value={reqText} onChange={(e) => setReqText(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-blue-100 focus:outline-none focus:border-blue-500 h-24 resize-none font-medium" placeholder="Leave empty if none..." />
-          </div>
-          <div>
-            <label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Optional (White Box)</label>
-            <textarea value={optText} onChange={(e) => setOptText(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-neutral-500 h-24 resize-none font-medium" placeholder="Leave empty if none (or type REST)..." />
-          </div>
-        </div>
-
-        <div className="flex space-x-4">
-          <button onClick={onClose} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white font-black py-4 rounded-xl transition-all text-xs uppercase tracking-widest shadow-lg">Cancel</button>
-          <button onClick={() => onSave(day.weekIndex, day.id, reqText, optText)} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black py-4 rounded-xl transition-all flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)] text-xs uppercase tracking-widest"><Save className="w-4 h-4 mr-2" /> Save</button>
-        </div>
-      </div>
-    </div>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300"><div className="bg-neutral-900 border border-pink-500/30 rounded-[2rem] p-8 max-w-md w-full shadow-2xl"><h2 className="text-2xl font-black text-white mb-2 flex items-center italic"><Edit3 className="w-6 h-6 mr-3 text-pink-500" /> Edit Workout</h2><p className="text-[10px] text-pink-500 uppercase font-black tracking-[0.2em] mb-6">{dayString} • Week {Number(day.weekIndex) + 1}</p><div className="space-y-4 mb-8"><div><label className="text-[10px] font-black text-blue-400 uppercase block mb-2 tracking-widest">Required (Blue Box)</label><textarea value={reqText} onChange={(e) => setReqText(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-blue-100 focus:outline-none focus:border-blue-500 h-24 resize-none font-medium" placeholder="Leave empty if none..." /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Optional (White Box)</label><textarea value={optText} onChange={(e) => setOptText(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-neutral-500 h-24 resize-none font-medium" placeholder="Leave empty if none (or type REST)..." /></div></div><div className="flex space-x-4"><button onClick={onClose} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white font-black py-4 rounded-xl transition-all text-xs uppercase tracking-widest shadow-lg">Cancel</button><button onClick={() => onSave(day.weekIndex, day.id, reqText, optText)} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black py-4 rounded-xl transition-all flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)] text-xs uppercase tracking-widest"><Save className="w-4 h-4 mr-2" /> Save</button></div></div></div>
   );
 }
 
-function StatCard({ icon, label, val, unit, color }) {
-  return (
-    <div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl h-full">
-      <div className={`${color} mb-2`}>{React.cloneElement(icon, { className: "w-6 h-6" })}</div>
-      <div><div className="text-2xl font-black text-white leading-none">{String(val)}</div><div className="text-[9px] text-neutral-500 font-black uppercase tracking-widest leading-tight mt-2">{String(label)} <br/> {unit && <span className="opacity-40 italic lowercase">({unit})</span>}</div></div>
-    </div>
-  );
-}
+function StatCard({ icon, label, val, unit, color }) { return (<div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl h-full"><div className={`${color} mb-2`}>{React.cloneElement(icon, { className: "w-6 h-6" })}</div><div><div className="text-2xl font-black text-white leading-none">{String(val)}</div><div className="text-[9px] text-neutral-500 font-black uppercase tracking-widest leading-tight mt-2">{String(label)} <br/> {unit && <span className="opacity-40 italic lowercase">({unit})</span>}</div></div></div>); }
 
 function StatsView({ logs, trainingPlan, profile }) {
   const activeLogs = useMemo(() => logs.filter(l => !l.isSkipped), [logs]);
-
-  const stats = useMemo(() => {
-    const s = { miles: 0, time: 0, elev: 0 };
-    activeLogs.forEach(l => { s.miles += Number(l.distance)||0; s.time += Number(l.duration)||0; s.elev += Number(l.elevation)||0; });
-    return s;
-  }, [activeLogs]);
-
-  const paceStats = useMemo(() => {
-    const pStats = {
-      'recovery': { dist: 0, dur: 0, label: 'Easy / Recovery', icon: <Wind className="w-5 h-5" />, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-      'interval': { dist: 0, dur: 0, label: 'Speed / Intervals', icon: <Zap className="w-5 h-5" />, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' },
-      'hills': { dist: 0, dur: 0, label: 'Hill Repeats', icon: <Mountain className="w-5 h-5" />, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
-      'run': { dist: 0, dur: 0, label: 'Long / Base Runs', icon: <MapPin className="w-5 h-5" />, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20' },
-    };
-
-    activeLogs.forEach(log => {
-      let dayType = 'run';
-      for (const w of trainingPlan) {
-        const d = w.days.find(day => day.id === log.dayId);
-        if (d && d.type) { dayType = d.type; break; }
-      }
-      if (pStats[dayType] && log.distance > 0 && log.duration > 0) {
-        pStats[dayType].dist += Number(log.distance);
-        pStats[dayType].dur += Number(log.duration);
-      } else if (log.distance > 0 && log.duration > 0) { 
-        pStats['run'].dist += Number(log.distance);
-        pStats['run'].dur += Number(log.duration);
-      }
-    });
-    return pStats;
-  }, [activeLogs, trainingPlan]);
-
-  const formatPace = (dur, dist) => {
-    if (!dist || !dur) return '--:--';
-    const pace = dur / dist;
-    const mins = Math.floor(pace);
-    const secs = Math.round((pace - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
+  const stats = useMemo(() => { const s = { miles: 0, time: 0, elev: 0 }; activeLogs.forEach(l => { s.miles += Number(l.distance)||0; s.time += Number(l.duration)||0; s.elev += Number(l.elevation)||0; }); return s; }, [activeLogs]);
+  const paceStats = useMemo(() => { const pStats = { 'recovery': { dist: 0, dur: 0, label: 'Easy / Recovery', icon: <Wind className="w-5 h-5" />, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' }, 'interval': { dist: 0, dur: 0, label: 'Speed / Intervals', icon: <Zap className="w-5 h-5" />, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' }, 'hills': { dist: 0, dur: 0, label: 'Hill Repeats', icon: <Mountain className="w-5 h-5" />, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' }, 'run': { dist: 0, dur: 0, label: 'Long / Base Runs', icon: <MapPin className="w-5 h-5" />, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20' }, }; activeLogs.forEach(log => { let dayType = 'run'; for (const w of trainingPlan) { const d = w.days.find(day => day.id === log.dayId); if (d && d.type) { dayType = d.type; break; } } if (pStats[dayType] && log.distance > 0 && log.duration > 0) { pStats[dayType].dist += Number(log.distance); pStats[dayType].dur += Number(log.duration); } else if (log.distance > 0 && log.duration > 0) { pStats['run'].dist += Number(log.distance); pStats['run'].dur += Number(log.duration); } }); return pStats; }, [activeLogs, trainingPlan]);
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <h2 className="text-2xl font-black tracking-tight italic">Mission Stats</h2>
-      
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-pink-900/40 to-neutral-900 border border-pink-500/20 rounded-[2rem] p-6 shadow-2xl"><Activity className="text-pink-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{displayDist(stats.miles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-pink-200 uppercase font-black tracking-widest mt-3">Total Distance ({profile?.unitPref || 'mi'})</div></div>
-        <div className="bg-gradient-to-br from-teal-900/30 to-neutral-900 border border-teal-500/20 rounded-[2rem] p-6 shadow-2xl"><Watch className="text-teal-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{Math.floor(stats.time/60)}<span className="text-xl ml-1">h</span></div><div className="text-[10px] text-teal-200 uppercase font-black tracking-widest mt-3">Time on Feet</div></div>
-        <div className="col-span-2 md:col-span-1 bg-gradient-to-br from-indigo-900/30 to-neutral-900 border border-indigo-500/20 rounded-[2rem] p-6 shadow-2xl"><Mountain className="text-indigo-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{stats.elev}</div><div className="text-[10px] text-indigo-200 uppercase font-black tracking-widest mt-3">Elevation (ft)</div></div>
-      </div>
-
-      <div className="bg-neutral-900 rounded-3xl border border-neutral-800 overflow-hidden shadow-2xl">
-        <div className="p-6 border-b border-white/5 bg-neutral-950/30">
-          <h3 className="text-xs font-black text-neutral-400 uppercase tracking-[0.2em] flex items-center">
-            <Timer className="w-4 h-4 mr-2" /> Average Pace Breakdown
-          </h3>
-        </div>
-        <div className="divide-y divide-neutral-800/50">
-          {Object.entries(paceStats).map(([key, data]) => {
-             const userDist = displayDist(data.dist, profile?.unitPref);
-             const userPace = displayPace(data.dur / data.dist, profile?.unitPref);
-             return (
-               <div key={key} className="p-5 px-6 flex items-center justify-between hover:bg-neutral-800/20 transition-colors">
-                 <div className="flex items-center space-x-5">
-                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${data.bg} ${data.color}`}>{data.icon}</div>
-                   <div>
-                     <div className="font-black text-white text-sm tracking-wide">{data.label}</div>
-                     <div className="text-[10px] text-neutral-500 mt-1 uppercase font-bold tracking-widest">{userDist.toFixed(1)} {profile?.unitPref || 'mi'} tracked</div>
-                   </div>
-                 </div>
-                 <div className="text-right">
-                   <div className="text-2xl font-black text-white tabular-nums tracking-tighter">
-                     {data.dist > 0 ? `${Math.floor(userPace)}:${Math.round((userPace%1)*60).toString().padStart(2,'0')}` : '--:--'} <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">/{profile?.unitPref || 'mi'}</span>
-                   </div>
-                 </div>
-               </div>
-             );
-          })}
-        </div>
-      </div>
-    </div>
+    <div className="space-y-8 animate-in fade-in duration-500"><h2 className="text-2xl font-black tracking-tight italic">Mission Stats</h2><div className="grid grid-cols-2 md:grid-cols-3 gap-4"><div className="bg-gradient-to-br from-pink-900/40 to-neutral-900 border border-pink-500/20 rounded-[2rem] p-6 shadow-2xl"><Activity className="text-pink-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{displayDist(stats.miles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-pink-200 uppercase font-black tracking-widest mt-3">Total Distance ({profile?.unitPref || 'mi'})</div></div><div className="bg-gradient-to-br from-teal-900/30 to-neutral-900 border border-teal-500/20 rounded-[2rem] p-6 shadow-2xl"><Watch className="text-teal-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{Math.floor(stats.time/60)}<span className="text-xl ml-1">h</span></div><div className="text-[10px] text-teal-200 uppercase font-black tracking-widest mt-3">Time on Feet</div></div><div className="col-span-2 md:col-span-1 bg-gradient-to-br from-indigo-900/30 to-neutral-900 border border-indigo-500/20 rounded-[2rem] p-6 shadow-2xl"><Mountain className="text-indigo-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{stats.elev}</div><div className="text-[10px] text-indigo-200 uppercase font-black tracking-widest mt-3">Elevation (ft)</div></div></div><div className="bg-neutral-900 rounded-3xl border border-neutral-800 overflow-hidden shadow-2xl"><div className="p-6 border-b border-white/5 bg-neutral-950/30"><h3 className="text-xs font-black text-neutral-400 uppercase tracking-[0.2em] flex items-center"><Timer className="w-4 h-4 mr-2" /> Average Pace Breakdown</h3></div><div className="divide-y divide-neutral-800/50">{Object.entries(paceStats).map(([key, data]) => { const userDist = displayDist(data.dist, profile?.unitPref); const userPace = displayPace(data.dur / data.dist, profile?.unitPref); return (<div key={key} className="p-5 px-6 flex items-center justify-between hover:bg-neutral-800/20 transition-colors"><div className="flex items-center space-x-5"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${data.bg} ${data.color}`}>{data.icon}</div><div><div className="font-black text-white text-sm tracking-wide">{data.label}</div><div className="text-[10px] text-neutral-500 mt-1 uppercase font-bold tracking-widest">{userDist.toFixed(1)} {profile?.unitPref || 'mi'} tracked</div></div></div><div className="text-right"><div className="text-2xl font-black text-white tabular-nums tracking-tighter">{data.dist > 0 ? `${Math.floor(userPace)}:${Math.round((userPace%1)*60).toString().padStart(2,'0')}` : '--:--'} <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">/{profile?.unitPref || 'mi'}</span></div></div></div>); })}</div></div></div>
   );
 }
 
@@ -1347,136 +1273,14 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [stravaFetchErr, setStravaFetchErr] = useState('');
-  
-  const handleSave = async (e) => {
-    e.preventDefault(); if (!user) return; setSaving(true);
-    const distMiles = Number(distance) / (profile?.unitPref === 'km' ? MI_TO_KM : 1);
-    try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: day.week, distance: distMiles, duration: Number(duration) || 0, elevation: Number(elevation) || 0, effort: Number(effort) || 0, notes, vibe, actualDate, isQuickLog: false, isSkipped: false, updatedAt: new Date().toISOString() }); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); }
-  };
-
-  const handleDelete = async () => {
-    if (!user) return;
-    if (!deleteConfirm) {
-      setDeleteConfirm(true);
-      setTimeout(() => setDeleteConfirm(false), 3000);
-      return;
-    }
-    setSaving(true);
-    try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); }
-  };
-
-  const handleStravaSync = async () => {
-    if (!profile?.stravaAccessToken) {
-      setStravaFetchErr("Strava connection missing.");
-      return;
-    }
-    setSaving(true);
-    setStravaFetchErr('');
-    let token = profile.stravaAccessToken;
-    
-    if (profile.stravaTokenExpiresAt && Date.now() / 1000 > profile.stravaTokenExpiresAt) {
-       try {
-          const refreshRes = await fetch('https://www.strava.com/oauth/token', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-               client_id: STRAVA_CLIENT_ID,
-               client_secret: STRAVA_CLIENT_SECRET,
-               refresh_token: profile.stravaRefreshToken,
-               grant_type: 'refresh_token'
-             })
-          });
-          const refreshData = await refreshRes.json();
-          if (refreshData.access_token) {
-             token = refreshData.access_token;
-             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), {
-               stravaAccessToken: refreshData.access_token,
-               stravaRefreshToken: refreshData.refresh_token,
-               stravaTokenExpiresAt: refreshData.expires_at
-             }, { merge: true });
-          }
-       } catch (e) {
-          console.error("Token refresh failed", e);
-       }
-    }
-
-    try {
-      const response = await fetch('https://www.strava.com/api/v3/athlete/activities?per_page=1', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      
-      if (data && data.length > 0) {
-        const activity = data[0];
-        const distMiles = activity.distance * 0.000621371;
-        const distKm = activity.distance / 1000;
-        setDistance(profile?.unitPref === 'km' ? distKm.toFixed(2) : distMiles.toFixed(2));
-        setDuration(Math.round(activity.moving_time / 60));
-        setElevation(Math.round(activity.total_elevation_gain * 3.28084));
-        setNotes(`Imported from Strava: ${activity.name}`);
-        setVibe('🚀');
-      } else {
-        setStravaFetchErr("No recent runs found on Strava.");
-      }
-    } catch (err) {
-      console.error(err);
-      setStravaFetchErr("Error connecting to Strava.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
+  const handleSave = async (e) => { e.preventDefault(); if (!user) return; setSaving(true); const distMiles = Number(distance) / (profile?.unitPref === 'km' ? MI_TO_KM : 1); try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: day.week, distance: distMiles, duration: Number(duration) || 0, elevation: Number(elevation) || 0, effort: Number(effort) || 0, notes, vibe, actualDate, isQuickLog: false, isSkipped: false, updatedAt: new Date().toISOString() }); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
+  const handleDelete = async () => { if (!user) return; if (!deleteConfirm) { setDeleteConfirm(true); setTimeout(() => setDeleteConfirm(false), 3000); return; } setSaving(true); try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
+  const handleStravaSync = async () => { if (!profile?.stravaAccessToken) { setStravaFetchErr("Strava connection missing."); return; } setSaving(true); setStravaFetchErr(''); let token = profile.stravaAccessToken; if (profile.stravaTokenExpiresAt && Date.now() / 1000 > profile.stravaTokenExpiresAt) { try { const refreshRes = await fetch('https://www.strava.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, refresh_token: profile.stravaRefreshToken, grant_type: 'refresh_token' }) }); const refreshData = await refreshRes.json(); if (refreshData.access_token) { token = refreshData.access_token; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { stravaAccessToken: refreshData.access_token, stravaRefreshToken: refreshData.refresh_token, stravaTokenExpiresAt: refreshData.expires_at }, { merge: true }); } } catch (e) { console.error("Token refresh failed", e); } } try { const response = await fetch('https://www.strava.com/api/v3/athlete/activities?per_page=1', { headers: { 'Authorization': `Bearer ${token}` } }); const data = await response.json(); if (data && data.length > 0) { const activity = data[0]; const distMiles = activity.distance * 0.000621371; const distKm = activity.distance / 1000; setDistance(profile?.unitPref === 'km' ? distKm.toFixed(2) : distMiles.toFixed(2)); setDuration(Math.round(activity.moving_time / 60)); setElevation(Math.round(activity.total_elevation_gain * 3.28084)); setNotes(`Imported from Strava: ${activity.name}`); setVibe('🚀'); } else { setStravaFetchErr("No recent runs found on Strava."); } } catch (err) { console.error(err); setStravaFetchErr("Error connecting to Strava."); } finally { setSaving(false); } };
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayString = dayNames[day.id.split('-')[1] === 'mon' ? 0 : day.id.split('-')[1] === 'tue' ? 1 : day.id.split('-')[1] === 'wed' ? 2 : day.id.split('-')[1] === 'thu' ? 3 : day.id.split('-')[1] === 'fri' ? 4 : day.id.split('-')[1] === 'sat' ? 5 : 6];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="absolute inset-0" onClick={onClose}></div>
-      <div className="relative w-full max-w-md bg-neutral-900 rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-        <div className="flex justify-between items-center p-7 border-b border-white/5"><div><h3 className="text-2xl font-black text-white italic">Log Run</h3><p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.2em] mt-1.5">Week {day.week} • {dayString}</p></div><button onClick={onClose} className="p-3 bg-neutral-800 text-neutral-400 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button></div>
-        <div className="p-7 overflow-y-auto">
-          {profile?.stravaConnected && (!existingLog || existingLog.isQuickLog) && (
-             <>
-               {stravaFetchErr && <div className="text-rose-500 text-[10px] uppercase font-black tracking-widest text-center mb-3 bg-rose-500/10 p-2 rounded-xl">{stravaFetchErr}</div>}
-               <button type="button" onClick={handleStravaSync} disabled={saving} className="w-full mb-6 bg-[#FC4C02]/10 border border-[#FC4C02]/30 text-[#FC4C02] hover:bg-[#FC4C02]/20 py-4 rounded-2xl flex items-center justify-center text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50"><StravaIcon className="w-5 h-5 mr-3" /> {saving ? 'Syncing...' : 'Pull Latest from Strava'}</button>
-             </>
-          )}
-          
-          <div className="mb-8 space-y-4">
-             {day.req && (
-               <div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl flex flex-col items-start gap-2 shadow-inner">
-                 <span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span>
-                 <p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p>
-               </div>
-             )}
-             {day.opt && (
-               <div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2">
-                 <span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span>
-                 <p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p>
-               </div>
-             )}
-          </div>
-
-          <form id="log-form" onSubmit={handleSave} className="space-y-6">
-            <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Date Completed</label><input type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold [color-scheme:dark]" /></div>
-            <div className="grid grid-cols-2 gap-5">
-              <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Distance ({profile?.unitPref || 'mi'})</label><input type="number" step="0.01" value={distance} onChange={(e) => setDistance(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div>
-              <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Time (min)</label><input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div>
-            </div>
-            <div><div className="flex justify-between items-center mb-3"><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1">Effort Score</label><span className="text-xl font-black text-pink-500 italic">{effort}/10</span></div><input type="range" min="1" max="10" value={effort} onChange={(e) => setEffort(e.target.value)} className="w-full accent-pink-500 h-2 bg-neutral-800 rounded-full appearance-none" /></div>
-            <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Session Notes</label><textarea rows="3" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white text-sm resize-none focus:outline-none focus:border-pink-500 font-medium" placeholder="How did the blisters feel? Vibe?" /></div>
-          </form>
-        </div>
-        <div className="p-7 border-t border-white/5 bg-neutral-900/50 flex gap-4 pb-safe">
-          {existingLog && (
-            <button type="button" onClick={handleDelete} disabled={saving} className={`border font-black px-5 rounded-2xl transition-all shadow-lg flex items-center justify-center ${deleteConfirm ? 'bg-rose-500 text-white border-rose-500' : 'bg-neutral-800 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-500 border-neutral-700 hover:border-rose-500/50'}`} title="Delete Log">
-              {deleteConfirm ? 'Sure?' : <X className="w-5 h-5" />}
-            </button>
-          )}
-          <button type="submit" form="log-form" disabled={saving} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl py-5 shadow-[0_0_25px_rgba(219,39,119,0.3)] transition-all transform active:scale-95">{saving ? 'Transmitting...' : 'Save Log'}</button>
-        </div>
-      </div>
-    </div>
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300"><div className="absolute inset-0" onClick={onClose}></div><div className="relative w-full max-w-md bg-neutral-900 rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"><div className="flex justify-between items-center p-7 border-b border-white/5"><div><h3 className="text-2xl font-black text-white italic">Log Run</h3><p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.2em] mt-1.5">Week {day.week} • {dayString}</p></div><button onClick={onClose} className="p-3 bg-neutral-800 text-neutral-400 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button></div><div className="p-7 overflow-y-auto">{SHOW_STRAVA_FEATURES && profile?.stravaConnected && (!existingLog || existingLog.isQuickLog) && (<div className="mb-8">{stravaFetchErr && <div className="text-rose-500 text-[10px] uppercase font-black tracking-widest text-center mb-3 bg-rose-500/10 p-2 rounded-xl">{stravaFetchErr}</div>}<button type="button" onClick={handleStravaSync} disabled={saving} className="w-full bg-[#FC4C02] hover:bg-[#E34402] text-white py-4 rounded-xl flex items-center justify-center font-bold transition-colors disabled:opacity-50 shadow-[0_0_15px_rgba(252,76,2,0.3)]"><StravaIcon className="w-5 h-5 mr-3" /><span style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif", fontSize: "14px" }}>{saving ? 'Syncing Activity...' : 'Pull Latest Activity'}</span></button><PoweredByStrava className="justify-center mt-3" /></div>)}<div className="mb-8 space-y-4">{day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl flex flex-col items-start gap-2 shadow-inner"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p></div>)}{day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p></div>)}</div><form id="log-form" onSubmit={handleSave} className="space-y-6"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Date Completed</label><input type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold [color-scheme:dark]" /></div><div className="grid grid-cols-2 gap-5"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Distance ({profile?.unitPref || 'mi'})</label><input type="number" step="0.01" value={distance} onChange={(e) => setDistance(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Time (min)</label><input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div></div><div><div className="flex justify-between items-center mb-3"><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1">Effort Score</label><span className="text-xl font-black text-pink-500 italic">{effort}/10</span></div><input type="range" min="1" max="10" value={effort} onChange={(e) => setEffort(e.target.value)} className="w-full accent-pink-500 h-2 bg-neutral-800 rounded-full appearance-none" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Session Notes</label><textarea rows="3" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white text-sm resize-none focus:outline-none focus:border-pink-500 font-medium" placeholder="How did the blisters feel? Vibe?" /></div></form></div><div className="p-7 border-t border-white/5 bg-neutral-900/50 flex gap-4 pb-safe">{existingLog && (<button type="button" onClick={handleDelete} disabled={saving} className={`border font-black px-5 rounded-2xl transition-all shadow-lg flex items-center justify-center ${deleteConfirm ? 'bg-rose-500 text-white border-rose-500' : 'bg-neutral-800 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-500 border-neutral-700 hover:border-rose-500/50'}`}>{deleteConfirm ? 'Sure?' : <X className="w-5 h-5" />}</button>)}<button type="submit" form="log-form" disabled={saving} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl py-5 shadow-[0_0_25px_rgba(219,39,119,0.3)] transition-all transform active:scale-95">{saving ? 'Transmitting...' : 'Save Log'}</button></div></div></div>
   );
 }
 
@@ -1485,24 +1289,13 @@ function AuthScreen({ auth }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [adminKey, setAdminKey] = useState(''); 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [clickCount, setClickCount] = useState(0); 
   const handleSubmit = async (e) => { e.preventDefault(); setError(''); setLoading(true); try { if (!isLogin) { if (inviteCode !== TEAM_INVITE_CODE) throw new Error("Whoops! Incorrect Team Invite Code."); await createUserWithEmailAndPassword(auth, email, password); } else { await signInWithEmailAndPassword(auth, email, password); } } catch (err) { setError(err.message.replace('Firebase:', '').trim()); } finally { setLoading(false); } };
   return (
-    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
-      <div className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity grayscale" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} />
-      <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative z-10">
-        <div className="flex flex-col items-center mb-10 relative z-10"><div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6"><Flame className="w-8 h-8 text-white" /></div><h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1><p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">ENDURE 24</p></div>
-        {error && (<div className="bg-rose-500/10 border border-rose-500/50 text-rose-400 text-[10px] font-black uppercase p-4 rounded-2xl mb-8 text-center tracking-widest">{error}</div>)}
-        <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
-          {!isLogin && (<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Team Invite Code</label><input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black tracking-widest" placeholder="Enter secret code" required /></div>)}
-          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
-          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
-          <button type="submit" disabled={loading} className="w-full bg-pink-600 hover:bg-pink-500 text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px_rgba(236,72,153,0.3)] mt-6 transition-all">{loading ? 'Processing...' : (isLogin ? 'Login' : 'Join')}</button>
-        </form>
-        <button onClick={() => setIsLogin(!isLogin)} className="w-full mt-8 text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] hover:text-white transition-colors relative z-10">{isLogin ? "Sign up here" : "Return to Login"}</button>
-      </div>
-    </div>
+    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden"><div className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity grayscale" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} /><div className="bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative z-10"><div onClick={() => setClickCount(c => c + 1)} className="flex flex-col items-center mb-10 relative z-10 cursor-pointer select-none"><div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6 transition-transform active:scale-90"><Flame className="w-8 h-8 text-white" /></div><h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1><p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">ENDURE 24</p></div>{error && (<div className="bg-rose-500/10 border border-rose-500/50 text-rose-400 text-[10px] font-black uppercase p-4 rounded-2xl mb-8 text-center tracking-widest">{error}</div>)}<form onSubmit={handleSubmit} className="space-y-5 relative z-10">{clickCount >= 5 && (<div className="bg-indigo-500/10 border border-indigo-500/50 p-4 rounded-2xl animate-in zoom-in duration-300"><div className="flex items-center text-indigo-400 text-[9px] font-black uppercase tracking-widest mb-2"><ShieldCheck className="w-3 h-3 mr-2" /> Admin Access Mode</div><input type="password" value={adminKey} onChange={(e) => setAdminKey(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 font-black text-xs" placeholder="ENTER ACCESS KEY" /></div>)}{!isLogin && (<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Team Invite Code</label><input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black tracking-widest" placeholder="Enter secret code" required /></div>)}<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div><button type="submit" disabled={loading} className={`w-full ${adminKey === ADMIN_SECRET_KEY ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/30' : 'bg-pink-600 hover:bg-pink-500 shadow-pink-500/30'} text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px] mt-6 transition-all`}>{loading ? 'Processing...' : (isLogin ? 'Login' : 'Join')}</button></form><button onClick={() => setIsLogin(!isLogin)} className="w-full mt-8 text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] hover:text-white transition-colors relative z-10">{isLogin ? "Sign up here" : "Return to Login"}</button></div></div>
   );
 }
 
@@ -1513,55 +1306,12 @@ function ProfileSetupModal({ user, db, appId, existingProfile, onClose, onResetP
   const [unitPref, setUnitPref] = useState(existingProfile?.unitPref || 'mi');
   const [saving, setSaving] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
-
-  const handleSave = async (e) => { 
-    e.preventDefault(); 
-    if (!name.trim()) return; 
-    setSaving(true); 
-    try { 
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { displayName: name, avatarEmoji, avatarBg, unitPref, createdAt: existingProfile ? existingProfile.createdAt : new Date().toISOString() }, { merge: true }); 
-      onClose(); 
-    } catch(err) { 
-      console.error(err); 
-    } finally { 
-      setSaving(false); 
-    } 
-  };
-
+  const [isGhost, setIsGhost] = useState(existingProfile?.role === 'admin');
+  const handleSave = async (e) => { e.preventDefault(); if (!name.trim()) return; setSaving(true); try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { displayName: name, avatarEmoji, avatarBg, unitPref, role: isGhost ? 'admin' : 'member', createdAt: existingProfile ? existingProfile.createdAt : new Date().toISOString() }, { merge: true }); onClose(); } catch(err) { console.error(err); } finally { setSaving(false); } };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="bg-neutral-900 border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative max-h-[95vh] overflow-y-auto">
-        {existingProfile && (<button onClick={onClose} className="absolute top-6 right-6 p-3 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button>)}
-        <div className="text-center mb-10 relative z-10"><div className={`w-24 h-24 rounded-full bg-gradient-to-br ${String(avatarBg)} flex items-center justify-center text-5xl shadow-2xl mx-auto mb-6 border-4 border-white/10`}>{String(avatarEmoji)}</div><h2 className="text-2xl font-black text-white italic tracking-tight">{existingProfile ? 'Edit Profile' : 'Welcome, Sister.'}</h2></div>
-        <form onSubmit={handleSave} className="space-y-8 text-left relative z-10">
-          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Runner Identity</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-5 text-white font-black focus:outline-none focus:border-pink-500 shadow-inner" placeholder="e.g. Speedy Sarah" required /></div>
-          
-          <div>
-            <label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Preferred Measurement</label>
-            <div className="flex space-x-3">
-               <button type="button" onClick={() => setUnitPref('mi')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${unitPref === 'mi' ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}>Miles</button>
-               <button type="button" onClick={() => setUnitPref('km')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${unitPref === 'km' ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}>Kilometers</button>
-            </div>
-          </div>
-
-          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Avatar Emoji</label><div className="grid grid-cols-6 gap-3 max-h-40 overflow-y-auto p-1">{AVATAR_EMOJIS_LIST.map(emoji => (<button key={emoji} type="button" onClick={() => setAvatarEmoji(emoji)} className={`h-11 text-2xl flex items-center justify-center rounded-xl transition-all ${avatarEmoji === emoji ? 'bg-pink-600 border border-pink-400 shadow-lg scale-110' : 'bg-neutral-950 border border-neutral-800 opacity-60'}`}>{emoji}</button>))}</div></div>
-          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Signature Flair (Gradient)</label><div className="grid grid-cols-6 gap-3">{AVATAR_BGS_LIST.map(bg => ( <button key={bg} type="button" onClick={() => setAvatarBg(bg)} className={`h-8 rounded-full bg-gradient-to-br ${String(bg)} transition-all ${avatarBg === bg ? 'ring-2 ring-white scale-125 shadow-xl z-10' : 'opacity-40 hover:opacity-100'}`} /> ))}</div></div>
-          <button type="submit" disabled={saving} className="w-full bg-pink-600 text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl mt-4 shadow-[0_10px_30px_rgba(236,72,153,0.3)] transform transition-all active:scale-95">
-            {saving ? (existingProfile ? 'Saving...' : 'Locking in...') : (existingProfile ? 'Save Changes' : 'Join the Team')}
-          </button>
-        </form>
-        {existingProfile && onResetPlan && (
-          <div className="mt-8 pt-6 border-t border-white/5 relative z-10 text-center">
-            <button type="button" onClick={() => { 
-              if (!resetConfirm) { setResetConfirm(true); setTimeout(() => setResetConfirm(false), 3000); }
-              else { onResetPlan(); onClose(); }
-            }} className={`text-[10px] uppercase tracking-[0.2em] flex items-center justify-center w-full transition-all rounded-xl py-3 font-black ${resetConfirm ? 'bg-rose-500 text-white shadow-lg' : 'text-neutral-500 hover:text-pink-400'}`}>
-              <RefreshCw className="w-3 h-3 mr-2" /> {resetConfirm ? 'Click again to confirm reset!' : 'Master Reset Team Plan'}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-in fade-in duration-300"><div className="bg-neutral-900 border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative max-h-[95vh] overflow-y-auto">{(existingProfile || isGhost) && (<button onClick={onClose} className="absolute top-6 right-6 p-3 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button>)}<div className="text-center mb-10 relative z-10"><div className={`w-24 h-24 rounded-full bg-gradient-to-br ${String(avatarBg)} flex items-center justify-center text-5xl shadow-2xl mx-auto mb-6 border-4 border-white/10 relative`}>{String(avatarEmoji)}{isGhost && <div className="absolute -bottom-1 -right-1 bg-indigo-600 p-1.5 rounded-full border-4 border-neutral-900"><ShieldCheck className="w-4 h-4 text-white" /></div>}</div><h2 className="text-2xl font-black text-white italic tracking-tight">{existingProfile ? 'Edit Profile' : 'Welcome, Sister.'}</h2>{isGhost && <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest mt-2">Active Ghost Protocol</p>}</div><form onSubmit={handleSave} className="space-y-8 text-left relative z-10"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Runner Identity</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-5 text-white font-black focus:outline-none focus:border-pink-500 shadow-inner" placeholder="e.g. Speedy Sarah" required /></div>
+          {isGhost && (<div className="flex items-center justify-between p-4 bg-neutral-950 rounded-2xl border border-white/5"><div className="flex items-center space-x-3 text-neutral-400"><Ghost className={`w-5 h-5 ${isGhost ? 'text-indigo-400' : 'text-neutral-600'}`} /><div><p className="text-[10px] font-black uppercase tracking-widest">Ghost Mode</p><p className="text-[8px] font-bold text-neutral-600 uppercase">Hide me from team list</p></div></div><button type="button" onClick={() => setIsGhost(!isGhost)} className={`w-12 h-6 rounded-full transition-colors relative ${isGhost ? 'bg-indigo-600' : 'bg-neutral-800'}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isGhost ? 'left-7' : 'left-1'}`} /></button></div>)}
+          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Preferred Measurement</label><div className="flex space-x-3"><button type="button" onClick={() => setUnitPref('mi')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${unitPref === 'mi' ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}>Miles</button><button type="button" onClick={() => setUnitPref('km')} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${unitPref === 'km' ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}>Kilometers</button></div></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Avatar Emoji</label><div className="grid grid-cols-6 gap-3 max-h-40 overflow-y-auto p-1">{AVATAR_EMOJIS_LIST.map(emoji => (<button key={emoji} type="button" onClick={() => setAvatarEmoji(emoji)} className={`h-11 text-2xl flex items-center justify-center rounded-xl transition-all ${avatarEmoji === emoji ? 'bg-pink-600 border border-pink-400 shadow-lg scale-110' : 'bg-neutral-950 border border-neutral-800 opacity-60'}`}>{emoji}</button>))}</div></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Signature Flair (Gradient)</label><div className="grid grid-cols-6 gap-3">{AVATAR_BGS_LIST.map(bg => ( <button key={bg} type="button" onClick={() => setAvatarBg(bg)} className={`h-8 rounded-full bg-gradient-to-br ${String(bg)} transition-all ${avatarBg === bg ? 'ring-2 ring-white scale-125 shadow-xl z-10' : 'opacity-40 hover:opacity-100'}`} /> ))}</div></div><button type="submit" disabled={saving} className={`w-full ${isGhost ? 'bg-indigo-600' : 'bg-pink-600'} text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl mt-4 shadow-[0_10px_30px_rgba(0,0,0,0.3)] transform transition-all active:scale-95`}>{saving ? 'Locking in...' : (existingProfile ? 'Save Changes' : 'Join the Team')}</button></form>{isGhost && (<button onClick={onClose} className="w-full mt-4 text-[10px] text-neutral-500 font-black uppercase tracking-widest py-2 hover:text-white transition-colors">Skip Setup & Browse</button>)}{existingProfile && onResetPlan && (<div className="mt-8 pt-6 border-t border-white/5 relative z-10 text-center"><button type="button" onClick={() => { if (!resetConfirm) { setResetConfirm(true); setTimeout(() => setResetConfirm(false), 3000); } else { onResetPlan(); onClose(); } }} className={`text-[10px] uppercase tracking-[0.2em] flex items-center justify-center w-full transition-all rounded-xl py-3 font-black ${resetConfirm ? 'bg-rose-500 text-white shadow-lg' : 'text-neutral-500 hover:text-pink-400'}`}><RefreshCw className="w-3 h-3 mr-2" /> {resetConfirm ? 'Click again to confirm reset!' : 'Master Reset Team Plan'}</button></div>)}</div></div>
   );
 }
 
