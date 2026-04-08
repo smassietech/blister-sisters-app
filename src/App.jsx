@@ -12,7 +12,8 @@ import {
 } from 'firebase/app';
 import { 
   getAuth, signInWithCustomToken, onAuthStateChanged, 
-  createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut
+  createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut,
+  signInAnonymously
 } from 'firebase/auth';
 import { 
   getFirestore, collection, doc, setDoc, onSnapshot, deleteDoc, updateDoc 
@@ -26,12 +27,11 @@ const TEAM_INVITE_CODE = 'ENDURE24';
 const ADMIN_SECRET_KEY = 'SISTER_HQ_2026'; 
 
 // 🔌 STRAVA MASTER SWITCH
-// Set this to false to hide all Strava buttons/logos until approved.
 const SHOW_STRAVA_FEATURES = false; 
 
 const LAP_DISTANCE = 5; // Miles
 const MI_TO_KM = 1.60934;
-const PLAN_VERSION = 6; 
+const PLAN_VERSION = 7; // 🚀 Bumped to 7 to force sync Week 7 fixes to Firestore
 
 // ==========================================
 // 🔗 STRAVA API CREDENTIALS
@@ -351,6 +351,11 @@ export default function App() {
       const myP = pData.find(p => p.id === user.uid);
       if (myP) setProfile(myP);
       else if (!user.isAnonymous) setShowProfileSetup(true);
+      else if (user.isAnonymous) {
+        // Handle auto-ghost for anonymous admin entry
+        setProfile({ displayName: 'Ghost Admin', role: 'admin', unitPref: 'mi', avatarEmoji: '👻', avatarBg: 'from-neutral-800 to-neutral-900' });
+        setShowProfileSetup(false);
+      }
     });
 
     const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'laps'), (s) => {
@@ -365,6 +370,7 @@ export default function App() {
       if (s.exists() && s.data().version === PLAN_VERSION) {
         setTrainingPlan(s.data().weeks);
       } else {
+        // 🔥 FORCE SYNC: If local code version is newer than DB version, overwrite the DB
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN });
       }
       setLoading(false);
@@ -520,233 +526,121 @@ export default function App() {
   );
 }
 
-// --- SUB-COMPONENTS ---
+function AuthScreen({ auth }) {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [adminKey, setAdminKey] = useState(''); 
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [clickCount, setClickCount] = useState(0); 
+
+  const handleGhostLogin = async () => {
+    if (adminKey !== ADMIN_SECRET_KEY) return;
+    setLoading(true);
+    try {
+      await signInAnonymously(auth);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleSubmit = async (e) => { 
+    e.preventDefault(); 
+    setError(''); 
+    setLoading(true); 
+    try { 
+      if (!isLogin) { 
+        if (inviteCode !== TEAM_INVITE_CODE) throw new Error("Whoops! Incorrect Team Invite Code."); 
+        await createUserWithEmailAndPassword(auth, email, password); 
+      } else { 
+        await signInWithEmailAndPassword(auth, email, password); 
+      } 
+    } catch (err) { 
+      setError(err.message.replace('Firebase:', '').trim()); 
+    } finally { 
+      setLoading(false); 
+    } 
+  };
+
+  return (
+    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
+      <div className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity grayscale" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} />
+      <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative z-10">
+        <div onClick={() => setClickCount(c => c + 1)} className="flex flex-col items-center mb-10 relative z-10 cursor-pointer select-none">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6 transition-transform active:scale-90">
+             <Flame className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1>
+          <p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">ENDURE 24</p>
+        </div>
+        
+        {error && (<div className="bg-rose-500/10 border border-rose-500/50 text-rose-400 text-[10px] font-black uppercase p-4 rounded-2xl mb-8 text-center tracking-widest">{error}</div>)}
+        
+        <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
+          {clickCount >= 5 && (
+            <div className="bg-indigo-500/10 border border-indigo-500/50 p-4 rounded-2xl animate-in zoom-in duration-300">
+               <div className="flex items-center text-indigo-400 text-[9px] font-black uppercase tracking-widest mb-2"><ShieldCheck className="w-3 h-3 mr-2" /> Admin Access Mode</div>
+               <input type="password" value={adminKey} onChange={(e) => setAdminKey(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 font-black text-xs mb-3" placeholder="ENTER ACCESS KEY" />
+               {adminKey === ADMIN_SECRET_KEY && (
+                 <button type="button" onClick={handleGhostLogin} className="w-full bg-indigo-600 text-white font-black uppercase text-[9px] py-3 rounded-lg flex items-center justify-center"><Ghost className="w-3 h-3 mr-2" /> Enter as Ghost</button>
+               )}
+            </div>
+          )}
+          
+          {!isLogin && (<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Team Invite Code</label><input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black tracking-widest" placeholder="Enter secret code" required /></div>)}
+          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
+          <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
+          <button type="submit" disabled={loading} className={`w-full bg-pink-600 hover:bg-pink-500 shadow-pink-500/30 text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px] mt-6 transition-all`}>{loading ? 'Processing...' : (isLogin ? 'Login' : 'Join')}</button>
+        </form>
+        <button onClick={() => setIsLogin(!isLogin)} className="w-full mt-8 text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] hover:text-white transition-colors relative z-10">{isLogin ? "Sign up here" : "Return to Login"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ... rest of the helper components same as before ...
 
 function RelayBoard({ relayLaps, user, db, appId, currentProfile, profiles = [], raceMeta }) {
   const [editingLapId, setEditingLapId] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-
   const getLapRef = (lapNumber) => doc(db, 'artifacts', appId, 'public', 'data', 'laps', `lap_${lapNumber}`);
-
-  const claimLap = async (lapNumber) => {
-    if (!user || !currentProfile) return;
-    await setDoc(getLapRef(lapNumber), {
-      lapNumber,
-      runnerId: user.uid,
-      runnerName: String(currentProfile.displayName || "Unknown Sister"),
-      status: 'claimed',
-      updatedAt: Date.now()
-    }, { merge: true });
-  };
-
-  const startLap = async (lapNumber) => {
-    await setDoc(getLapRef(lapNumber), { status: 'running', startTime: Date.now() }, { merge: true });
-  };
-
-  const finishLap = async (lapNumber) => {
-    await setDoc(getLapRef(lapNumber), { status: 'complete', endTime: Date.now() }, { merge: true });
-  };
-
-  const unclaimLap = async (lapNumber) => {
-    await setDoc(getLapRef(lapNumber), {
-      lapNumber, runnerId: null, runnerName: null, status: 'open', startTime: null, endTime: null, updatedAt: Date.now()
-    }, { merge: true });
-  };
-
-  const deleteLap = async (lapNumber) => {
-    await deleteDoc(getLapRef(lapNumber));
-  };
-
-  const createNextLap = async () => {
-    const nextLapNum = maxLap + 1;
-    await setDoc(getLapRef(nextLapNum), { lapNumber: nextLapNum, runnerId: null, runnerName: null, status: 'open', createdAt: Date.now() });
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { totalLaps: nextLapNum });
-  };
-
-  const assignLap = async (lapNumber, assigneeId) => {
-    if (assigneeId === 'unclaim') {
-      await unclaimLap(lapNumber);
-      setEditingLapId(null);
-      return;
-    }
-    const assignee = profiles.find(p => p.id === assigneeId);
-    if (!assignee) return;
-    await setDoc(getLapRef(lapNumber), {
-      lapNumber,
-      runnerId: assignee.id,
-      runnerName: String(assignee.displayName || "Unknown Sister"),
-      status: 'claimed',
-      updatedAt: Date.now()
-    }, { merge: true });
-    setEditingLapId(null);
-  };
-
-  const formatForInput = (timestamp) => {
-    if (!timestamp) return '';
-    const d = new Date(timestamp);
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,16);
-  };
-
-  const parseFromInput = (str) => {
-    if (!str) return null;
-    return new Date(str).getTime();
-  };
-
-  const startEditing = (lap) => {
-    setEditingLapId(lap.lapNumber);
-    setEditData({
-      runnerId: lap.runnerId || '',
-      status: lap.status || 'open',
-      startTime: formatForInput(lap.startTime),
-      endTime: formatForInput(lap.endTime)
-    });
-    setDeleteConfirm(null);
-  };
-
-  const saveEdit = async (lapNumber) => {
-    const assignee = profiles.find(p => p.id === editData.runnerId);
-    await setDoc(getLapRef(lapNumber), {
-      lapNumber,
-      runnerId: assignee ? assignee.id : null,
-      runnerName: assignee ? String(assignee.displayName) : null,
-      status: editData.status,
-      startTime: parseFromInput(editData.startTime),
-      endTime: parseFromInput(editData.endTime),
-      updatedAt: Date.now()
-    }, { merge: true });
-    setEditingLapId(null);
-  };
-
-  const executeDelete = async (lapNumber) => {
-    if (deleteConfirm === lapNumber) {
-      await deleteDoc(getLapRef(lapNumber));
-      setEditingLapId(null);
-      setDeleteConfirm(null);
-    } else {
-      setDeleteConfirm(lapNumber);
-      setTimeout(() => setDeleteConfirm(null), 3000);
-    }
-  };
-
-  const getEstStartTime = (lapNum, displayLapsArray) => {
-     if (!raceMeta?.startTime) return null;
-     const thisLap = displayLapsArray.find(l => l.lapNumber === lapNum);
-     if (thisLap && thisLap.startTime) return new Date(thisLap.startTime);
-
-     let lastKnownLap = null;
-     for (let i = lapNum - 1; i >= 1; i--) {
-        const l = displayLapsArray.find(x => x.lapNumber === i);
-        if (l && (l.endTime || l.startTime)) { lastKnownLap = l; break; }
-     }
-
-     let baseTime;
-     let lapsToAdd;
-
-     if (lastKnownLap) {
-        if (lastKnownLap.endTime) {
-           baseTime = lastKnownLap.endTime;
-           lapsToAdd = lapNum - lastKnownLap.lapNumber - 1; 
-        } else if (lastKnownLap.startTime) {
-           baseTime = lastKnownLap.startTime;
-           lapsToAdd = lapNum - lastKnownLap.lapNumber; 
-        }
-     } else {
-        baseTime = raceMeta.startTime;
-        lapsToAdd = lapNum - 1;
-     }
-     return new Date(baseTime + (lapsToAdd * 50 * 60000));
-  };
-
+  const claimLap = async (lapNumber) => { if (!user || !currentProfile) return; await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: user.uid, runnerName: String(currentProfile.displayName || "Unknown Sister"), status: 'claimed', updatedAt: Date.now() }, { merge: true }); };
+  const startLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { status: 'running', startTime: Date.now() }, { merge: true }); };
+  const finishLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { status: 'complete', endTime: Date.now() }, { merge: true }); };
+  const unclaimLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: null, runnerName: null, status: 'open', startTime: null, endTime: null, updatedAt: Date.now() }, { merge: true }); };
+  const deleteLap = async (lapNumber) => { await deleteDoc(getLapRef(lapNumber)); };
+  const createNextLap = async () => { const nextLapNum = maxLap + 1; await setDoc(getLapRef(nextLapNum), { lapNumber: nextLapNum, runnerId: null, runnerName: null, status: 'open', createdAt: Date.now() }); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { totalLaps: nextLapNum }); };
+  const formatForInput = (timestamp) => { if (!timestamp) return ''; const d = new Date(timestamp); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,16); };
+  const parseFromInput = (str) => { if (!str) return null; return new Date(str).getTime(); };
+  const startEditing = (lap) => { setEditingLapId(lap.lapNumber); setEditData({ runnerId: lap.runnerId || '', status: lap.status || 'open', startTime: formatForInput(lap.startTime), endTime: formatForInput(lap.endTime) }); setDeleteConfirm(null); };
+  const saveEdit = async (lapNumber) => { const assignee = profiles.find(p => p.id === editData.runnerId); await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: assignee ? assignee.id : null, runnerName: assignee ? String(assignee.displayName) : null, status: editData.status, startTime: parseFromInput(editData.startTime), endTime: parseFromInput(editData.endTime), updatedAt: Date.now() }, { merge: true }); setEditingLapId(null); };
+  const executeDelete = async (lapNumber) => { if (deleteConfirm === lapNumber) { await deleteDoc(getLapRef(lapNumber)); setEditingLapId(null); setDeleteConfirm(null); } else { setDeleteConfirm(lapNumber); setTimeout(() => setDeleteConfirm(null), 3000); } };
+  const getEstStartTime = (lapNum, displayLapsArray) => { if (!raceMeta?.startTime) return null; const thisLap = displayLapsArray.find(l => l.lapNumber === lapNum); if (thisLap && thisLap.startTime) return new Date(thisLap.startTime); let lastKnownLap = null; for (let i = lapNum - 1; i >= 1; i--) { const l = displayLapsArray.find(x => x.lapNumber === i); if (l && (l.endTime || l.startTime)) { lastKnownLap = l; break; } } let baseTime; let lapsToAdd; if (lastKnownLap) { if (lastKnownLap.endTime) { baseTime = lastKnownLap.endTime; lapsToAdd = lapNum - lastKnownLap.lapNumber - 1; } else if (lastKnownLap.startTime) { baseTime = lastKnownLap.startTime; lapsToAdd = lapNum - lastKnownLap.lapNumber; } } else { baseTime = raceMeta.startTime; lapsToAdd = lapNum - 1; } return new Date(baseTime + (lapsToAdd * 50 * 60000)); };
   const highestLap = relayLaps.length > 0 ? Math.max(...relayLaps.map(l => l.lapNumber)) : 0;
   const maxLap = Math.max(raceMeta?.totalLaps || 25, highestLap);
-  
   const displayLaps = [];
-  for (let i = 1; i <= maxLap; i++) {
-    const existing = relayLaps.find(l => l.lapNumber === i);
-    if (existing) displayLaps.push(existing);
-    else displayLaps.push({ id: `lap_${i}`, lapNumber: i, status: 'open' });
-  }
+  for (let i = 1; i <= maxLap; i++) { const existing = relayLaps.find(l => l.lapNumber === i); if (existing) displayLaps.push(existing); else displayLaps.push({ id: `lap_${i}`, lapNumber: i, status: 'open' }); }
 
   return (
     <div className="space-y-4 pb-8">
       {displayLaps.map((lap) => {
         const estTimeDate = getEstStartTime(lap.lapNumber, displayLaps);
         const estTimeStr = estTimeDate ? estTimeDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '--:--';
-        
         return (
         <div key={lap.id} className={`bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex flex-col items-start justify-between shadow-xl gap-4 transition-all ${editingLapId === lap.lapNumber ? 'ring-2 ring-pink-500/50' : ''}`}>
-          
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-neutral-950 rounded-xl flex flex-col items-center justify-center border border-white/5 shrink-0 shadow-inner">
-                 <span className="font-black text-white leading-none">L{String(lap.lapNumber)}</span>
-              </div>
-              <div>
-                <p className="font-bold text-white text-lg leading-tight">{String(lap.runnerName || "Unclaimed")}</p>
-                <div className="flex items-center gap-3 mt-1">
-                   <p className="text-[10px] uppercase text-neutral-500 font-bold">{String(lap.status)}</p>
-                   {lap.status === 'complete' && lap.endTime && <p className="text-[10px] text-teal-400 font-bold uppercase tracking-widest">Done: {new Date(lap.endTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>}
-                   {lap.status === 'running' && lap.startTime && <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">Started: {new Date(lap.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>}
-                   {(lap.status === 'open' || lap.status === 'claimed') && <p className="text-[10px] text-pink-400 font-bold uppercase tracking-widest">Est Start: {estTimeStr}</p>}
-                </div>
-              </div>
+              <div className="w-12 h-12 bg-neutral-950 rounded-xl flex flex-col items-center justify-center border border-white/5 shrink-0 shadow-inner"><span className="font-black text-white leading-none">L{String(lap.lapNumber)}</span></div>
+              <div><p className="font-bold text-white text-lg leading-tight">{String(lap.runnerName || "Unclaimed")}</p><div className="flex items-center gap-3 mt-1"><p className="text-[10px] uppercase text-neutral-500 font-bold">{String(lap.status)}</p>{lap.status === 'complete' && lap.endTime && <p className="text-[10px] text-teal-400 font-bold uppercase tracking-widest">Done: {new Date(lap.endTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>}{lap.status === 'running' && lap.startTime && <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">Started: {new Date(lap.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>}{(lap.status === 'open' || lap.status === 'claimed') && <p className="text-[10px] text-pink-400 font-bold uppercase tracking-widest">Est Start: {estTimeStr}</p>}</div></div>
             </div>
-            
-            {editingLapId !== lap.lapNumber && (
-              <div className="flex flex-wrap items-center gap-2 justify-end">
-                {!lap.runnerId && <button onClick={() => claimLap(lap.lapNumber)} className="bg-teal-500/20 text-teal-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-teal-500/20">Claim</button>}
-                {lap.status === 'claimed' && lap.runnerId === user?.uid && <button onClick={() => startLap(lap.lapNumber)} className="bg-pink-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg">Start</button>}
-                {lap.status === 'running' && lap.runnerId === user?.uid && <button onClick={() => finishLap(lap.lapNumber)} className="bg-teal-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg">Finish</button>}
-                <button onClick={() => startEditing(lap)} className="bg-neutral-800 text-neutral-400 p-2 rounded-xl border border-neutral-700 hover:text-white transition-colors ml-2" title="Edit Lap Details">
-                  <Settings className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+            {editingLapId !== lap.lapNumber && (<div className="flex flex-wrap items-center gap-2 justify-end">{!lap.runnerId && <button onClick={() => claimLap(lap.lapNumber)} className="bg-teal-500/20 text-teal-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase border border-teal-500/20">Claim</button>}{lap.status === 'claimed' && lap.runnerId === user?.uid && <button onClick={() => startLap(lap.lapNumber)} className="bg-pink-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg">Start</button>}{lap.status === 'running' && lap.runnerId === user?.uid && <button onClick={() => finishLap(lap.lapNumber)} className="bg-teal-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg">Finish</button>}<button onClick={() => startEditing(lap)} className="bg-neutral-800 text-neutral-400 p-2 rounded-xl border border-neutral-700 hover:text-white transition-colors ml-2" title="Edit Lap Details"><Settings className="w-4 h-4" /></button></div>)}
           </div>
-
-          {editingLapId === lap.lapNumber && (
-            <div className="flex flex-col gap-3 w-full bg-neutral-950 p-5 rounded-xl border border-neutral-800 mt-2 shadow-inner">
-               <div className="flex justify-between items-center mb-2">
-                 <span className="font-black text-pink-500 text-xs uppercase tracking-widest">Edit Lap {lap.lapNumber} Details</span>
-                 <button onClick={() => setEditingLapId(null)} className="text-neutral-400 hover:text-white bg-neutral-800 p-1.5 rounded-full"><X className="w-4 h-4" /></button>
-               </div>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div>
-                    <label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Assigned Runner</label>
-                    <select className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3.5 rounded-xl focus:border-pink-500 focus:outline-none" value={editData.runnerId} onChange={e => setEditData({...editData, runnerId: e.target.value})}>
-                       <option value="">-- Unclaimed --</option>
-                       {profiles.sort((a,b) => String(a.displayName || '').localeCompare(String(b.displayName || ''))).map(p => (
-                          <option key={p.id} value={p.id}>{p.displayName}</option>
-                       ))}
-                    </select>
-                 </div>
-                 <div>
-                    <label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Status</label>
-                    <select className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3.5 rounded-xl focus:border-pink-500 focus:outline-none" value={editData.status} onChange={e => setEditData({...editData, status: e.target.value})}>
-                       <option value="open">Open</option>
-                       <option value="claimed">Claimed</option>
-                       <option value="running">Running</option>
-                       <option value="complete">Complete</option>
-                    </select>
-                 </div>
-                 <div>
-                    <label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Actual Start Time</label>
-                    <input type="datetime-local" className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-pink-500 font-black text-xs [color-scheme:dark]" value={editData.startTime} onChange={e => setEditData({...editData, startTime: e.target.value})} />
-                 </div>
-                 <div>
-                    <label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Actual Finish Time</label>
-                    <input type="datetime-local" className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-pink-500 font-black text-xs [color-scheme:dark]" value={editData.endTime} onChange={e => setEditData({...editData, endTime: e.target.value})} />
-                 </div>
-               </div>
-               <div className="flex gap-3 mt-4 pt-4 border-t border-neutral-800">
-                 <button onClick={() => executeDelete(lap.lapNumber)} className={`px-4 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${deleteConfirm === lap.lapNumber ? 'bg-rose-500 text-white shadow-lg' : 'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20'}`}>
-                   {deleteConfirm === lap.lapNumber ? 'Confirm Delete?' : 'Delete Lap'}
-                 </button>
-                 <button onClick={() => saveEdit(lap.lapNumber)} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white rounded-xl py-3.5 text-[10px] font-black uppercase tracking-widest shadow-[0_0_15px_rgba(236,72,153,0.4)] transition-all">Save Changes</button>
-               </div>
-            </div>
-          )}
+          {editingLapId === lap.lapNumber && (<div className="flex flex-col gap-3 w-full bg-neutral-950 p-5 rounded-xl border border-neutral-800 mt-2 shadow-inner"><div className="flex justify-between items-center mb-2"><span className="font-black text-pink-500 text-xs uppercase tracking-widest">Edit Lap {lap.lapNumber} Details</span><button onClick={() => setEditingLapId(null)} className="text-neutral-400 hover:text-white bg-neutral-800 p-1.5 rounded-full"><X className="w-4 h-4" /></button></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Assigned Runner</label><select className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3.5 rounded-xl focus:border-pink-500 focus:outline-none" value={editData.runnerId} onChange={e => setEditData({...editData, runnerId: e.target.value})}><option value="">-- Unclaimed --</option>{profiles.sort((a,b) => String(a.displayName || '').localeCompare(String(b.displayName || ''))).map(p => (<option key={p.id} value={p.id}>{p.displayName}</option>))}</select></div><div><label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Status</label><select className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3.5 rounded-xl focus:border-pink-500 focus:outline-none" value={editData.status} onChange={e => setEditData({...editData, status: e.target.value})}><option value="open">Open</option><option value="claimed">Claimed</option><option value="running">Running</option><option value="complete">Complete</option></select></div><div><label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Actual Start Time</label><input type="datetime-local" className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3 rounded-xl focus:border-pink-500 focus:outline-none [color-scheme:dark]" value={editData.startTime} onChange={e => setEditData({...editData, startTime: e.target.value})} /></div><div><label className="text-[10px] uppercase text-neutral-500 font-bold mb-1.5 block tracking-widest">Actual Finish Time</label><input type="datetime-local" className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs p-3 rounded-xl focus:border-pink-500 focus:outline-none [color-scheme:dark]" value={editData.endTime} onChange={e => setEditData({...editData, endTime: e.target.value})} /></div></div><div className="flex gap-3 mt-4 pt-4 border-t border-neutral-800"><button onClick={() => executeDelete(lap.lapNumber)} className={`px-4 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${deleteConfirm === lap.lapNumber ? 'bg-rose-500 text-white shadow-lg' : 'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20'}`}>{deleteConfirm === lap.lapNumber ? 'Confirm Delete?' : 'Delete Lap'}</button><button onClick={() => saveEdit(lap.lapNumber)} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white rounded-xl py-3.5 text-[10px] font-black uppercase tracking-widest shadow-[0_0_15px_rgba(236,72,153,0.4)] transition-all">Save Changes</button></div></div>)}
         </div>
       );})}
       <button onClick={createNextLap} className="w-full bg-neutral-900 border border-neutral-800 hover:border-pink-500/50 text-neutral-400 hover:text-pink-400 py-4 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center justify-center transition-all shadow-xl mt-6"><PlusCircle className="w-4 h-4 mr-2" /> Add Lap {maxLap + 1}</button>
@@ -758,24 +652,9 @@ function RaceDayPlanView({ relayLaps, user, db, appId, currentProfile, profiles,
   const [activeTab, setActiveTab] = useState('relay');
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex space-x-2 bg-neutral-900 p-1.5 rounded-xl border border-neutral-800 shadow-xl">
-        <button onClick={() => setActiveTab('relay')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'relay' ? 'bg-pink-600 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Relay Board</button>
-        <button onClick={() => setActiveTab('archive')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'archive' ? 'bg-neutral-800 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Training Archive</button>
-      </div>
-      
-      {activeTab === 'relay' && (
-        <div className="animate-in fade-in duration-300">
-          <RelayBoard relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={currentProfile} profiles={profiles} raceMeta={raceMeta} />
-        </div>
-      )}
-
-      {activeTab === 'archive' && (
-        <PlanView 
-          logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} 
-          openLogModal={openLogModal} getLogForDay={getLogForDay} currentWeekNum={currentWeekNum} 
-          diffDays={diffDays} onEditDay={onEditDay} isArchive={true} user={user} db={db} appId={appId} profile={currentProfile}
-        />
-      )}
+      <div className="flex space-x-2 bg-neutral-900 p-1.5 rounded-xl border border-neutral-800 shadow-xl"><button onClick={() => setActiveTab('relay')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'relay' ? 'bg-pink-600 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Relay Board</button><button onClick={() => setActiveTab('archive')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'archive' ? 'bg-neutral-800 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Training Archive</button></div>
+      {activeTab === 'relay' && (<div className="animate-in fade-in duration-300"><RelayBoard relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={currentProfile} profiles={profiles} raceMeta={raceMeta} /></div>)}
+      {activeTab === 'archive' && (<PlanView logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} openLogModal={openLogModal} getLogForDay={getLogForDay} currentWeekNum={currentWeekNum} diffDays={diffDays} onEditDay={onEditDay} isArchive={true} user={user} db={db} appId={appId} profile={currentProfile} />)}
     </div>
   );
 }
@@ -784,124 +663,33 @@ function TeamView({ profiles, relayLaps, user, db, appId, currentProfile, raceMe
   const [activeTab, setActiveTab] = useState('roster'); 
   const [showSettings, setShowSettings] = useState(false);
   const sortedProfiles = [...profiles].sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
-
-  useEffect(() => {
-    if (isRaceDay && activeTab === 'relay') setActiveTab('roster');
-  }, [isRaceDay, activeTab]);
+  useEffect(() => { if (isRaceDay && activeTab === 'relay') setActiveTab('roster'); }, [isRaceDay, activeTab]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center mb-6">
-         <h2 className="text-2xl font-black tracking-tight">Team</h2>
-         <button onClick={() => setShowSettings(true)} className="flex items-center bg-neutral-800 text-neutral-300 hover:text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors shadow-xl">
-           <Settings className="w-3.5 h-3.5 mr-2" /> Event Settings
-         </button>
-      </div>
-
-      {!isRaceDay && (
-        <div className="flex space-x-2 bg-neutral-900 p-1.5 rounded-xl border border-neutral-800 shadow-xl mb-6">
-          <button onClick={() => setActiveTab('roster')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'roster' ? 'bg-neutral-800 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Roster</button>
-          <button onClick={() => setActiveTab('relay')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'relay' ? 'bg-pink-600 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Relay Board</button>
-        </div>
-      )}
-      
-      {activeTab === 'roster' && (
-        <div className="space-y-4">
-          {sortedProfiles.map((p) => {
-            const claimedLaps = relayLaps.filter(l => l.runnerId === p.id).map(l => l.lapNumber);
-            return (
-              <div key={p.id} className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 shadow-2xl relative overflow-hidden">
-                 <div className="flex items-center space-x-4 mb-4">
-                   <div className={`w-14 h-14 rounded-full bg-gradient-to-br ${String(p.avatarBg || 'from-pink-500 to-teal-400')} flex items-center justify-center text-2xl shadow-lg border-2 border-white/10 shrink-0`}>{String(p.avatarEmoji || '?')}</div>
-                   <div>
-                     <p className="font-black text-white text-lg leading-tight">{String(p.displayName || 'Anon')}</p>
-                     <p className="text-[10px] text-pink-400 uppercase font-black tracking-widest mt-1">{Number(p.totalRuns || 0)} Sessions • {displayDist(Number(p.totalMiles || 0), currentProfile?.unitPref).toFixed(1)} {currentProfile?.unitPref || 'mi'}</p>
-                   </div>
-                 </div>
-                 <div className="bg-neutral-950 rounded-2xl p-4 border border-white/5">
-                   <h4 className="text-[9px] uppercase tracking-[0.2em] text-neutral-500 font-black mb-3 flex items-center"><ListChecks className="w-3 h-3 mr-1.5" /> Race Day Laps</h4>
-                   {claimedLaps.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {claimedLaps.map(lapNum => (
-                          <span key={lapNum} className="bg-teal-500/10 border border-teal-500/20 text-teal-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-inner">Lap {lapNum}</span>
-                        ))}
-                      </div>
-                   ) : (
-                      <p className="text-[10px] text-neutral-600 italic font-bold">Waiting for assignments...</p>
-                   )}
-                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {activeTab === 'relay' && !isRaceDay && (
-        <RelayBoard relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={currentProfile} profiles={profiles} raceMeta={raceMeta} />
-      )}
-
-      {showSettings && (
-         <RaceSettingsModal 
-            raceMeta={raceMeta} db={db} appId={appId} currentProfile={currentProfile}
-            onClose={() => setShowSettings(false)} 
-         />
-      )}
+      <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black tracking-tight">Team</h2><button onClick={() => setShowSettings(true)} className="flex items-center bg-neutral-800 text-neutral-300 hover:text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors shadow-xl"><Settings className="w-3.5 h-3.5 mr-2" /> Event Settings</button></div>
+      {!isRaceDay && (<div className="flex space-x-2 bg-neutral-900 p-1.5 rounded-xl border border-neutral-800 shadow-xl mb-6"><button onClick={() => setActiveTab('roster')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'roster' ? 'bg-neutral-800 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Roster</button><button onClick={() => setActiveTab('relay')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'relay' ? 'bg-pink-600 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Relay Board</button></div>)}
+      {activeTab === 'roster' && (<div className="space-y-4">{sortedProfiles.map((p) => { const claimedLaps = relayLaps.filter(l => l.runnerId === p.id).map(l => l.lapNumber); return (<div key={p.id} className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 shadow-2xl relative overflow-hidden"><div className="flex items-center space-x-4 mb-4"><div className={`w-14 h-14 rounded-full bg-gradient-to-br ${String(p.avatarBg || 'from-pink-500 to-teal-400')} flex items-center justify-center text-2xl shadow-lg border-2 border-white/10 shrink-0`}>{String(p.avatarEmoji || '?')}</div><div><p className="font-black text-white text-lg leading-tight">{String(p.displayName || 'Anon')}</p><p className="text-[10px] text-pink-400 uppercase font-black tracking-widest mt-1">{Number(p.totalRuns || 0)} Sessions • {displayDist(Number(p.totalMiles || 0), currentProfile?.unitPref).toFixed(1)} {currentProfile?.unitPref || 'mi'}</p></div></div><div className="bg-neutral-950 rounded-2xl p-4 border border-white/5"><h4 className="text-[9px] uppercase tracking-[0.2em] text-neutral-500 font-black mb-3 flex items-center"><ListChecks className="w-3 h-3 mr-1.5" /> Race Day Laps</h4>{claimedLaps.length > 0 ? (<div className="flex flex-wrap gap-2">{claimedLaps.map(lapNum => (<span key={lapNum} className="bg-teal-500/10 border border-teal-500/20 text-teal-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-inner">Lap {lapNum}</span>))}</div>) : (<p className="text-[10px] text-neutral-600 italic font-bold">Waiting for assignments...</p>)}</div></div>); })}</div>)}
+      {activeTab === 'relay' && !isRaceDay && (<RelayBoard relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={currentProfile} profiles={profiles} raceMeta={raceMeta} />)}
+      {showSettings && (<RaceSettingsModal raceMeta={raceMeta} db={db} appId={appId} currentProfile={currentProfile} onClose={() => setShowSettings(false)} />)}
     </div>
   );
 }
 
 function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
   const [resetConfirm, setResetConfirm] = useState(false);
-
-  const updateRaceMeta = async (field, val) => {
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { [field]: val }, { merge: true });
-  };
-
-  const resetPlanToDefault = async () => {
-    if (!resetConfirm) {
-      setResetConfirm(true);
-      setTimeout(() => setResetConfirm(false), 3000);
-      return;
-    }
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN });
-    onClose();
-  };
-
+  const updateRaceMeta = async (field, val) => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { [field]: val }, { merge: true }); };
+  const resetPlanToDefault = async () => { if (!resetConfirm) { setResetConfirm(true); setTimeout(() => setResetConfirm(false), 3000); return; } await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN }); onClose(); };
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-neutral-900 border border-pink-500/30 rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-6 right-6 p-2 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-4 h-4" /></button>
-        <h3 className="text-2xl font-black text-white mb-6 italic">Event Settings</h3>
-        <div className="space-y-5">
-          <div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Total Relay Laps</label><input type="number" value={Number(raceMeta.totalLaps || 25)} onChange={(e) => updateRaceMeta('totalLaps', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div>
-          <div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Team Goal ({currentProfile?.unitPref || 'Miles'})</label><input type="number" value={Number(raceMeta.goalMiles || 100)} onChange={(e) => updateRaceMeta('goalMiles', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div>
-          <div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Race Start Time</label><input type="datetime-local" value={new Date((raceMeta.startTime || Date.now()) - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0,16)} onChange={(e) => updateRaceMeta('startTime', new Date(e.target.value).getTime())} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 [color-scheme:dark] shadow-inner font-bold" /></div>
-        </div>
-        <div className="mt-8 pt-6 border-t border-white/5">
-          <h4 className="text-[10px] font-black text-rose-500 uppercase block mb-3 tracking-widest">Danger Zone</h4>
-          <button onClick={resetPlanToDefault} className={`w-full ${resetConfirm ? 'bg-rose-500 text-white' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white'} border border-rose-500/30 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center transition-all shadow-lg`}>
-            <RefreshCw className="w-4 h-4 mr-2" /> {resetConfirm ? 'Double Tap to Reset Plan' : 'Master Reset Team Plan'}
-          </button>
-        </div>
-      </div>
+      <div className="bg-neutral-900 border border-pink-500/30 rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl relative"><button onClick={onClose} className="absolute top-6 right-6 p-2 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-4 h-4" /></button><h3 className="text-2xl font-black text-white mb-6 italic">Event Settings</h3><div className="space-y-5"><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Total Relay Laps</label><input type="number" value={Number(raceMeta.totalLaps || 25)} onChange={(e) => updateRaceMeta('totalLaps', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Team Goal ({currentProfile?.unitPref || 'Miles'})</label><input type="number" value={Number(raceMeta.goalMiles || 100)} onChange={(e) => updateRaceMeta('goalMiles', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Race Start Time</label><input type="datetime-local" value={new Date((raceMeta.startTime || Date.now()) - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0,16)} onChange={(e) => updateRaceMeta('startTime', new Date(e.target.value).getTime())} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 [color-scheme:dark] shadow-inner font-bold" /></div></div><div className="mt-8 pt-6 border-t border-white/5"><h4 className="text-[10px] font-black text-rose-500 uppercase block mb-3 tracking-widest">Danger Zone</h4><button onClick={resetPlanToDefault} className={`w-full ${resetConfirm ? 'bg-rose-500 text-white' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white'} border border-rose-500/30 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center transition-all shadow-lg`}><RefreshCw className="w-4 h-4 mr-2" /> {resetConfirm ? 'Double Tap to Reset Plan' : 'Master Reset Team Plan'}</button></div></div>
     </div>
   );
 }
 
 function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   const [elapsed, setElapsed] = useState('');
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const diff = Date.now() - (raceMeta.startTime || Date.now());
-      if (diff < 0) { setElapsed('Starting Soon...'); return; }
-      const hours = Math.floor(diff / 3600000);
-      const mins = Math.floor((diff % 3600000) / 60000);
-      const secs = Math.floor((diff % 60000) / 1000);
-      setElapsed(`${hours}h ${mins}m ${secs}s`);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [raceMeta.startTime]);
-
+  useEffect(() => { const timer = setInterval(() => { const diff = Date.now() - (raceMeta.startTime || Date.now()); if (diff < 0) { setElapsed('Starting Soon...'); return; } const hours = Math.floor(diff / 3600000); const mins = Math.floor((diff % 3600000) / 60000); const secs = Math.floor((diff % 60000) / 1000); setElapsed(`${hours}h ${mins}m ${secs}s`); }, 1000); return () => clearInterval(timer); }, [raceMeta.startTime]);
   const completedLaps = laps.filter(l => l.status === 'complete');
   const runningLap = laps.find(l => l.status === 'running');
   const nextLap = laps.find(l => l.status === 'claimed');
@@ -911,37 +699,9 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="bg-gradient-to-br from-pink-600 to-rose-700 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden">
-        <div className="relative z-10 flex justify-between items-center mb-6">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-200">Race Time Elapsed</p>
-          {currentProfile && (
-            <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${String(currentProfile.avatarBg)} flex items-center justify-center text-xl shadow-2xl border-2 border-white/20 shrink-0`}>
-              {String(currentProfile.avatarEmoji)}
-            </div>
-          )}
-        </div>
-        <div className="relative z-10">
-          <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter tabular-nums">{elapsed}</h2>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-neutral-900 border border-pink-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-          <h3 className="text-xs font-black uppercase tracking-widest text-pink-500 mb-4 flex items-center">
-            <span className="w-2 h-2 rounded-full bg-pink-500 animate-ping mr-2"></span> On Course
-          </h3>
-          {runningLap ? <div className="flex items-center space-x-4 relative z-10"><div className="text-2xl">🏃‍♀️</div><div><p className="text-xl font-black text-white">{String(runningLap.runnerName)}</p><p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Lap {String(runningLap.lapNumber)}</p></div></div> : <p className="text-neutral-500 italic text-sm">Nobody out right now.</p>}
-        </div>
-        <div className="bg-neutral-900 border border-teal-500/30 rounded-3xl p-6 shadow-xl">
-          <h3 className="text-xs font-black uppercase tracking-widest text-teal-400 mb-4">On Deck</h3>
-          {nextLap ? <div className="flex items-center space-x-4 relative z-10"><div className="text-2xl">🔥</div><div><p className="text-xl font-black text-white">{String(nextLap.runnerName)}</p><p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Ready for Lap {String(nextLap.lapNumber)}</p></div></div> : <p className="text-neutral-500 italic text-sm">Next slot open!</p>}
-        </div>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={<Activity />} label="Team Distance" val={displayDist(totalMiles, currentProfile?.unitPref).toFixed(1)} unit={currentProfile?.unitPref || 'mi'} color="text-pink-500" />
-        <StatCard icon={<Timer />} label="Avg Pace" val={avgPace > 0 ? `${Math.floor(displayPace(avgPace, currentProfile?.unitPref))}:${Math.round((displayPace(avgPace, currentProfile?.unitPref)%1)*60).toString().padStart(2,'0')}` : '--'} unit={`/${currentProfile?.unitPref || 'mi'}`} color="text-teal-400" />
-        <StatCard icon={<Gauge />} label="Laps Done" val={completedLaps.length} unit="laps" color="text-purple-500" />
-        <StatCard icon={<Target />} label="Remaining" val={displayDist(Math.max(0, raceMeta.goalMiles - totalMiles), currentProfile?.unitPref).toFixed(1)} unit={currentProfile?.unitPref || 'mi'} color="text-indigo-400" />
-      </div>
+      <div className="bg-gradient-to-br from-pink-600 to-rose-700 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden"><div className="relative z-10 flex justify-between items-center mb-6"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-200">Race Time Elapsed</p>{currentProfile && (<div className={`w-12 h-12 rounded-full bg-gradient-to-br ${String(currentProfile.avatarBg)} flex items-center justify-center text-xl shadow-2xl border-2 border-white/20 shrink-0`}>{String(currentProfile.avatarEmoji)}</div>)}</div><div className="relative z-10"><h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter tabular-nums">{elapsed}</h2></div></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="bg-neutral-900 border border-pink-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden"><h3 className="text-xs font-black uppercase tracking-widest text-pink-500 mb-4 flex items-center"><span className="w-2 h-2 rounded-full bg-pink-500 animate-ping mr-2"></span> On Course</h3>{runningLap ? <div className="flex items-center space-x-4 relative z-10"><div className="text-2xl">🏃‍♀️</div><div><p className="text-xl font-black text-white">{String(runningLap.runnerName)}</p><p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Lap {String(runningLap.lapNumber)}</p></div></div> : <p className="text-neutral-500 italic text-sm">Nobody out right now.</p>}</div><div className="bg-neutral-900 border border-teal-500/30 rounded-3xl p-6 shadow-xl"><h3 className="text-xs font-black uppercase tracking-widest text-teal-400 mb-4">On Deck</h3>{nextLap ? <div className="flex items-center space-x-4 relative z-10"><div className="text-2xl">🔥</div><div><p className="text-xl font-black text-white">{String(nextLap.runnerName)}</p><p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Ready for Lap {String(nextLap.lapNumber)}</p></div></div> : <p className="text-neutral-500 italic text-sm">Next slot open!</p>}</div></div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><StatCard icon={<Activity />} label="Team Distance" val={displayDist(totalMiles, currentProfile?.unitPref).toFixed(1)} unit={currentProfile?.unitPref || 'mi'} color="text-pink-500" /><StatCard icon={<Timer />} label="Avg Pace" val={avgPace > 0 ? `${Math.floor(displayPace(avgPace, currentProfile?.unitPref))}:${Math.round((displayPace(avgPace, currentProfile?.unitPref)%1)*60).toString().padStart(2,'0')}` : '--'} unit={`/${currentWeekNum?.unitPref || 'mi'}`} color="text-teal-400" /><StatCard icon={<Gauge />} label="Laps Done" val={completedLaps.length} unit="laps" color="text-purple-500" /><StatCard icon={<Target />} label="Remaining" val={displayDist(Math.max(0, raceMeta.goalMiles - totalMiles), currentProfile?.unitPref).toFixed(1)} unit={currentProfile?.unitPref || 'mi'} color="text-indigo-400" /></div>
     </div>
   );
 }
@@ -949,104 +709,18 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
 function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completionPct, profile, currentWeekNum, diffDays, toggleStrava }) {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0 });
   const [stravaErr, setStravaErr] = useState('');
-  
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const diff = EVENT_DATE_DEFAULT.getTime() - Date.now();
-      if (diff > 0) setTimeLeft({ days: Math.floor(diff/86400000), hours: Math.floor((diff%86400000)/3600000) });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-  
+  useEffect(() => { const timer = setInterval(() => { const diff = EVENT_DATE_DEFAULT.getTime() - Date.now(); if (diff > 0) setTimeLeft({ days: Math.floor(diff/86400000), hours: Math.floor((diff%86400000)/3600000) }); }, 1000); return () => clearInterval(timer); }, []);
   const currentDayNumber = Math.min(Math.max(diffDays + 1, 1), 105);
   const isTodayRest = todayWorkout && todayWorkout.day.req === "" && todayWorkout.day.opt === "REST";
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 relative overflow-hidden shadow-2xl group min-h-[180px]">
-        <div className="absolute inset-0 bg-cover bg-center opacity-30 mix-blend-luminosity grayscale group-hover:scale-110 transition-transform duration-1000" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} />
-        <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent"></div>
-        <div className="relative z-10 flex justify-between items-start">
-          <div>
-            <div className="inline-flex items-center space-x-2 bg-pink-500/20 border border-pink-500/30 text-pink-400 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest mb-6 backdrop-blur-sm shadow-xl"><CalendarDays className="w-3.5 h-3.5" /><span>Day {Number(currentDayNumber)} of 105</span></div>
-            <h2 className="text-3xl font-black text-white mb-3 tracking-tight leading-tight">Crush it{profile?.displayName ? `, ${String(profile.displayName).split(' ')[0]}` : ''}.</h2>
-            <p className="text-neutral-400 max-w-sm font-bold text-sm tracking-wide uppercase">Week {Number(currentWeekNum)} • Every mile counts!</p>
-          </div>
-          {profile && (
-            <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br ${String(profile.avatarBg)} flex items-center justify-center text-3xl md:text-4xl shadow-2xl border-2 border-white/20 shrink-0 ml-4`}>
-              {String(profile.avatarEmoji)}
-            </div>
-          )}
-        </div>
+      <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 relative overflow-hidden shadow-2xl group min-h-[180px]"><div className="absolute inset-0 bg-cover bg-center opacity-30 mix-blend-luminosity grayscale group-hover:scale-110 transition-transform duration-1000" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} /><div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent"></div><div className="relative z-10 flex justify-between items-start"><div><div className="inline-flex items-center space-x-2 bg-pink-500/20 border border-pink-500/30 text-pink-400 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest mb-6 backdrop-blur-sm shadow-xl"><CalendarDays className="w-3.5 h-3.5" /><span>Day {Number(currentDayNumber)} of 105</span></div><h2 className="text-3xl font-black text-white mb-3 tracking-tight leading-tight">Crush it{profile?.displayName ? `, ${String(profile.displayName).split(' ')[0]}` : ''}.</h2><p className="text-neutral-400 max-w-sm font-bold text-sm tracking-wide uppercase">Week {Number(currentWeekNum)} • Every mile counts!</p></div>{profile && (<div className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br ${String(profile.avatarBg)} flex items-center justify-center text-3xl md:text-4xl shadow-2xl border-2 border-white/20 shrink-0 ml-4`}>{String(profile.avatarEmoji)}</div>)}</div></div>
+      <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 shadow-2xl"><div className="flex justify-between items-end mb-4"><h3 className="text-xs font-black text-neutral-500 uppercase tracking-[0.2em]">Endure Training Completion</h3><span className="text-2xl font-black text-white italic">{Number(completionPct)}%</span></div><div className="w-full bg-neutral-950 rounded-full h-4 border border-white/5 overflow-hidden relative shadow-inner"><div className="bg-gradient-to-r from-pink-600 via-rose-500 to-teal-400 h-full transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(236,72,153,0.3)]" style={{ width: `${completionPct}%` }}></div></div></div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-pink-500/30 transition-all"><Activity className="text-pink-500 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{displayDist(totalMiles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Distance Logged ({profile?.unitPref || 'mi'})</div></div></div><div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-teal-500/30 transition-all"><CalendarDays className="text-teal-400 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{Number(timeLeft.days)}d</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Until Race</div></div></div>
+        {SHOW_STRAVA_FEATURES && (<div className="col-span-2 bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex items-center justify-between shadow-2xl"><div className="flex items-center space-x-3"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${profile?.stravaConnected ? 'bg-[#FC4C02] text-white shadow-[0_0_15px_rgba(252,76,2,0.4)]' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}><StravaIcon className="w-6 h-6" /></div><div><h4 className="font-black text-white text-sm">Strava Integration</h4><p className="text-[10px] uppercase font-bold text-neutral-500 mt-0.5 tracking-widest">{profile?.stravaConnected ? 'Status: Connected' : (stravaErr ? <span className="text-rose-500">{stravaErr}</span> : 'Status: Offline')}</p></div></div>{profile?.stravaConnected ? (<div className="flex flex-col items-end"><button onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} className="text-[10px] text-neutral-500 hover:text-rose-500 font-bold uppercase tracking-widest mb-1.5 transition-colors">Disconnect</button><PoweredByStrava /></div>) : (<StravaConnectButton onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} />)}</div>)}
       </div>
-      
-      <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 shadow-2xl">
-        <div className="flex justify-between items-end mb-4"><h3 className="text-xs font-black text-neutral-500 uppercase tracking-[0.2em]">Endure Training Completion</h3><span className="text-2xl font-black text-white italic">{Number(completionPct)}%</span></div>
-        <div className="w-full bg-neutral-950 rounded-full h-4 border border-white/5 overflow-hidden relative shadow-inner">
-          <div className="bg-gradient-to-r from-pink-600 via-rose-500 to-teal-400 h-full transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(236,72,153,0.3)]" style={{ width: `${completionPct}%` }}></div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-pink-500/30 transition-all"><Activity className="text-pink-500 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{displayDist(totalMiles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Distance Logged ({profile?.unitPref || 'mi'})</div></div></div>
-        <div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-teal-500/30 transition-all"><CalendarDays className="text-teal-400 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{Number(timeLeft.days)}d</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Until Race</div></div></div>
-        {SHOW_STRAVA_FEATURES && (
-          <div className="col-span-2 bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex items-center justify-between shadow-2xl">
-            <div className="flex items-center space-x-3">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${profile?.stravaConnected ? 'bg-[#FC4C02] text-white shadow-[0_0_15px_rgba(252,76,2,0.4)]' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}>
-                <StravaIcon className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="font-black text-white text-sm">Strava Integration</h4>
-                <p className="text-[10px] uppercase font-bold text-neutral-500 mt-0.5 tracking-widest">{profile?.stravaConnected ? 'Status: Connected' : (stravaErr ? <span className="text-rose-500">{stravaErr}</span> : 'Status: Offline')}</p>
-              </div>
-            </div>
-            
-            {profile?.stravaConnected ? (
-              <div className="flex flex-col items-end">
-                <button onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} className="text-[10px] text-neutral-500 hover:text-rose-500 font-bold uppercase tracking-widest mb-1.5 transition-colors">Disconnect</button>
-                <PoweredByStrava />
-              </div>
-            ) : (
-              <StravaConnectButton onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} />
-            )}
-          </div>
-        )}
-      </div>
-      
-      <div>
-        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-500 mb-5 flex items-center"><Flame className="w-4 h-4 mr-2" /> Current Objective</h3>
-        {todayWorkout && !isTodayRest ? (
-          <div onClick={() => openLogModal(todayWorkout.day, todayWorkout.week)} className="group cursor-pointer bg-neutral-900 border border-white/5 hover:border-pink-500/50 rounded-3xl p-6 transition-all relative overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-[10px] font-black bg-pink-500/20 text-pink-400 px-4 py-1.5 rounded-full uppercase tracking-widest border border-pink-500/20">Week {Number(todayWorkout.week.week)} • {String(todayWorkout.day.day)}</p>
-              <ArrowUpRight className="w-5 h-5 text-neutral-700 group-hover:text-pink-500 transition-colors" />
-            </div>
-            
-            <div className="space-y-4 relative z-10 pr-8">
-              {todayWorkout.day.req && (
-                <div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl shadow-inner flex flex-col items-start gap-2">
-                  <span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span>
-                  <p className="text-base md:text-lg font-bold text-blue-100 leading-relaxed italic whitespace-pre-line">{String(todayWorkout.day.req)}</p>
-                </div>
-              )}
-              {todayWorkout.day.opt && (
-                <div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2">
-                  <span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span>
-                  <p className="text-sm md:text-base font-medium text-neutral-300 leading-relaxed italic whitespace-pre-line">{String(todayWorkout.day.opt)}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 flex items-center text-[10px] text-pink-500/60 uppercase font-black tracking-[0.2em] group-hover:text-pink-400 transition-colors"><Activity className="w-4 h-4 mr-2" /> Tap to log session</div>
-          </div>
-        ) : (
-          <div className="bg-neutral-900/50 border border-neutral-800 rounded-3xl border-dashed p-8 text-center flex flex-col items-center justify-center">
-            <span className="text-3xl mb-3 block">🧘‍♀️</span>
-            <p className="text-neutral-500 italic text-sm font-bold">Rest day! Recovery is training too.</p>
-          </div>
-        )}
-      </div>
+      <div><h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-500 mb-5 flex items-center"><Flame className="w-4 h-4 mr-2" /> Current Objective</h3>{todayWorkout && !isTodayRest ? (<div onClick={() => openLogModal(todayWorkout.day, todayWorkout.week)} className="group cursor-pointer bg-neutral-900 border border-white/5 hover:border-pink-500/50 rounded-3xl p-6 transition-all relative overflow-hidden shadow-2xl"><div className="flex items-center justify-between mb-4"><p className="text-[10px] font-black bg-pink-500/20 text-pink-400 px-4 py-1.5 rounded-full uppercase tracking-widest border border-pink-500/20">Week {Number(todayWorkout.week.week)} • {String(todayWorkout.day.day)}</p><ArrowUpRight className="w-5 h-5 text-neutral-700 group-hover:text-pink-500 transition-colors" /></div><div className="space-y-4 relative z-10 pr-8">{todayWorkout.day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl shadow-inner flex flex-col items-start gap-2"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-base md:text-lg font-bold text-blue-100 leading-relaxed italic whitespace-pre-line">{String(todayWorkout.day.req)}</p></div>)}{todayWorkout.day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm md:text-base font-medium text-neutral-300 leading-relaxed italic whitespace-pre-line">{String(todayWorkout.day.opt)}</p></div>)}</div><div className="mt-6 flex items-center text-[10px] text-pink-500/60 uppercase font-black tracking-[0.2em] group-hover:text-pink-400 transition-colors"><Activity className="w-4 h-4 mr-2" /> Tap to log session</div></div>) : (<div className="bg-neutral-900/50 border border-neutral-800 rounded-3xl border-dashed p-8 text-center flex flex-col items-center justify-center"><span className="text-3xl mb-3 block">🧘‍♀️</span><p className="text-neutral-500 italic text-sm font-bold">Rest day! Recovery is training too.</p></div>)}</div>
     </div>
   );
 }
@@ -1054,183 +728,27 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
 function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogForDay, currentWeekNum, diffDays, onEditDay, isArchive = false, user, db, appId, profile }) {
   const [expandedWeek, setExpandedWeek] = useState(currentWeekNum > 0 && currentWeekNum <= 15 ? currentWeekNum : 1);
   const [isEditMode, setIsEditMode] = useState(false);
-
-  const getStageColor = (stage) => {
-    if (!stage) return 'bg-pink-500/5 border-white/5';
-    if (stage.includes('peak')) return 'bg-blue-500/10 border-blue-500/40';
-    if (stage.includes('step back')) return 'bg-amber-500/10 border-amber-500/40';
-    if (stage.includes('taper')) return 'bg-purple-500/10 border-purple-500/40';
-    return 'bg-pink-500/10 border-pink-500/30';
-  };
-
-  const getStageTextColor = (stage) => {
-    if (!stage) return 'text-pink-400';
-    if (stage.includes('peak')) return 'text-blue-400';
-    if (stage.includes('step back')) return 'text-amber-400';
-    if (stage.includes('taper')) return 'text-purple-400';
-    return 'text-pink-400';
-  };
-
-  const toggleQuickLog = async (e, day, week) => {
-    e.stopPropagation();
-    if (!user || !db || !appId) return;
-
-    const existingLog = logs.find(l => l.dayId === day.id);
-    const isAutoCompleted = (week.week <= 6); 
-    
-    if (existingLog) {
-      if (existingLog.isSkipped) {
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
-          dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString()
-        });
-      } else {
-        const isQuickLog = existingLog.isQuickLog === true || (existingLog.distance === 0 && existingLog.duration === 0 && (!existingLog.notes || existingLog.notes === 'Quick logged') && (!existingLog.vibe || existingLog.vibe === '✅' || existingLog.vibe === '😎' || existingLog.vibe === ''));
-        
-        if (!isQuickLog) {
-          openLogModal(day, week);
-          return;
-        }
-        
-        if (isAutoCompleted) {
-          await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
-            dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString()
-          });
-        } else {
-          await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id));
-        }
-      }
-    } else {
-      if (isAutoCompleted) {
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
-          dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString()
-        });
-      } else {
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), {
-          dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString()
-        });
-      }
-    }
-  };
-
+  const getStageColor = (stage) => { if (!stage) return 'bg-pink-500/5 border-white/5'; if (stage.includes('peak')) return 'bg-blue-500/10 border-blue-500/40'; if (stage.includes('step back')) return 'bg-amber-500/10 border-amber-500/40'; if (stage.includes('taper')) return 'bg-purple-500/10 border-purple-500/40'; return 'bg-pink-500/10 border-pink-500/30'; };
+  const getStageTextColor = (stage) => { if (!stage) return 'text-pink-400'; if (stage.includes('peak')) return 'text-blue-400'; if (stage.includes('step back')) return 'text-amber-400'; if (stage.includes('taper')) return 'text-purple-400'; return 'text-pink-400'; };
+  const toggleQuickLog = async (e, day, week) => { e.stopPropagation(); if (!user || !db || !appId) return; const existingLog = logs.find(l => l.dayId === day.id); const isAutoCompleted = (week.week <= 6); if (existingLog) { if (existingLog.isSkipped) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() }); } else { const isQuickLog = existingLog.isQuickLog === true || (existingLog.distance === 0 && existingLog.duration === 0 && (!existingLog.notes || existingLog.notes === 'Quick logged') && (!existingLog.vibe || existingLog.vibe === '✅' || existingLog.vibe === '😎' || existingLog.vibe === '')); if (!isQuickLog) { openLogModal(day, week); return; } if (isAutoCompleted) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString() }); } else { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); } } } else { if (isAutoCompleted) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString() }); } else { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() }); } } };
   const dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between"><h2 className="text-2xl font-black tracking-tight">{isArchive ? "Training Archive" : "Training Log"}</h2><button onClick={() => setIsEditMode(!isEditMode)} className={`flex items-center px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${isEditMode ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:text-white'}`}>{isEditMode ? <><Unlock className="w-3.5 h-3.5 mr-2" /> Editing Mode</> : <><Lock className="w-3.5 h-3.5 mr-2" /> Modify Plan</>}</button></div>
-      <div className="space-y-8">
-        <div className="bg-neutral-900 rounded-3xl border border-neutral-800 p-6 shadow-2xl relative overflow-hidden">
-          <h3 className="text-xs font-black text-neutral-500 uppercase tracking-[0.2em] mb-6 flex items-center"><Activity className="w-4 h-4 mr-2 text-teal-400" /> Training Density</h3>
-          <div className="overflow-x-auto pb-4 scrollbar-hide">
-            <div className="flex gap-2.5 min-w-max items-start">
-              
-              <div className="flex flex-col gap-2 p-1.5 border border-transparent mr-1">
-                <div className="text-[9px] font-black text-center mb-1 uppercase tracking-tighter invisible">W1</div>
-                {['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (
-                  <div key={i} className="h-5 flex items-center justify-end text-[9px] font-black text-neutral-500 uppercase tracking-widest">{d}</div>
-                ))}
-              </div>
-
-              {trainingPlan.map((week, wIndex) => (
-                <div key={week.week} className={`flex flex-col gap-2 p-1.5 rounded-xl border ${getStageColor(week.stage)}`}>
-                  <div className={`text-[9px] font-black text-center mb-1 uppercase tracking-tighter ${getStageTextColor(week.stage)}`}>W{week.week}</div>
-                  {week.days.map((day, dIndex) => {
-                    const globalDayIndex = (wIndex * 7) + dIndex;
-                    const isRest = (day.req === "" && day.opt === "REST");
-                    const activeLog = logs.find(l => l.dayId === day.id && !l.isSkipped);
-                    const isCompleted = completedLogIds.includes(day.id);
-                    const isToday = globalDayIndex === diffDays;
-                    const isEndure24 = wIndex === 14 && dIndex === 6;
-                    
-                    let cellClass = "w-5 h-5 rounded-md transition-all flex items-center justify-center cursor-pointer border-2 ";
-                    
-                    if (isEndure24) cellClass += "bg-orange-500 border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.8)] z-10 animate-pulse";
-                    else if (activeLog) {
-                       const isQuickLog = activeLog?.isQuickLog === true || (activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === ''));
-                       if (isQuickLog) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.5)] scale-105 z-10";
-                       else cellClass += "bg-pink-500 border-pink-400 shadow-[0_0_12px_rgba(236,72,153,0.5)] scale-105 z-10 text-white";
-                    } else if (isRest) cellClass += "bg-black border-neutral-600 opacity-80 cursor-default";
-                    else if (isToday) cellClass += "bg-neutral-800 border-pink-500 animate-pulse ring-2 ring-pink-500/30 z-10";
-                    else if (isCompleted) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.3)]";
-                    else cellClass += "bg-neutral-600 border-neutral-400 opacity-70 hover:border-pink-500 hover:opacity-100";
-                    
-                    return (
-                      <button key={day.id} onClick={() => !isRest && openLogModal(day, week)} className={cellClass} disabled={isRest} title={`${dayNames[dIndex]}`}>
-                        {isEndure24 && <Flame className={`w-3.5 h-3.5 ${activeLog ? 'text-white' : 'text-orange-900 drop-shadow-[0_0_5px_rgba(0,0,0,0.8)]'}`} />}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-4 mt-6 text-[9px] font-black text-neutral-400 uppercase tracking-widest pt-5 border-t border-white/5">
-            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-black border-2 border-neutral-600 mr-2 opacity-80"></div> Rest</span>
-            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-neutral-600 border-2 border-neutral-400 mr-2 opacity-70"></div> Future</span>
-            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-teal-600 border-2 border-teal-400 mr-2"></div> Done</span>
-            <span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-pink-500 border-2 border-pink-400 mr-2 shadow-[0_0_5px_rgba(236,72,153,0.5)]"></div> Logged</span>
-            <span className="ml-auto flex flex-wrap gap-3">
-               <span className="flex items-center"><div className="w-2 h-2 rounded-full bg-pink-500 mr-1.5"></div> Build</span>
-               <span className="flex items-center"><div className="w-2 h-2 rounded-full bg-amber-500 mr-1.5"></div> Step Back</span>
-               <span className="flex items-center"><div className="w-2 h-2 rounded-full bg-blue-500 mr-1.5"></div> Peak</span>
-               <span className="flex items-center"><div className="w-2 h-2 rounded-full bg-purple-500 mr-1.5"></div> Taper</span>
-            </span>
-          </div>
-        </div>
-
-        {trainingPlan.map((week, wIndex) => (
+    <div className="space-y-6 animate-in fade-in duration-500"><div className="flex items-center justify-between"><h2 className="text-2xl font-black tracking-tight">{isArchive ? "Training Archive" : "Training Log"}</h2><button onClick={() => setIsEditMode(!isEditMode)} className={`flex items-center px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${isEditMode ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:text-white'}`}>{isEditMode ? <><Unlock className="w-3.5 h-3.5 mr-2" /> Editing Mode</> : <><Lock className="w-3.5 h-3.5 mr-2" /> Modify Plan</>}</button></div><div className="space-y-8"><div className="bg-neutral-900 rounded-3xl border border-neutral-800 p-6 shadow-2xl relative overflow-hidden"><h3 className="text-xs font-black text-neutral-500 uppercase tracking-[0.2em] mb-6 flex items-center"><Activity className="w-4 h-4 mr-2 text-teal-400" /> Training Density</h3><div className="overflow-x-auto pb-4 scrollbar-hide"><div className="flex gap-2.5 min-w-max items-start"><div className="flex flex-col gap-2 p-1.5 border border-transparent mr-1"><div className="text-[9px] font-black text-center mb-1 uppercase tracking-tighter invisible">W1</div>{['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (<div key={i} className="h-5 flex items-center justify-end text-[9px] font-black text-neutral-500 uppercase tracking-widest">{d}</div>))}</div>{trainingPlan.map((week, wIndex) => (<div key={week.week} className={`flex flex-col gap-2 p-1.5 rounded-xl border ${getStageColor(week.stage)}`}><div className={`text-[9px] font-black text-center mb-1 uppercase tracking-tighter ${getStageTextColor(week.stage)}`}>W{week.week}</div>{week.days.map((day, dIndex) => { const globalDayIndex = (wIndex * 7) + dIndex; const isRest = (day.req === "" && day.opt === "REST"); const activeLog = logs.find(l => l.dayId === day.id && !l.isSkipped); const isCompleted = completedLogIds.includes(day.id); const isToday = globalDayIndex === diffDays; const isEndure24 = wIndex === 14 && dIndex === 6; let cellClass = "w-5 h-5 rounded-md transition-all flex items-center justify-center cursor-pointer border-2 "; if (isEndure24) cellClass += "bg-orange-500 border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.8)] z-10 animate-pulse"; else if (activeLog) { const isQuickLog = activeLog?.isQuickLog === true || (activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === '')); if (isQuickLog) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.5)] scale-105 z-10"; else cellClass += "bg-pink-500 border-pink-400 shadow-[0_0_12px_rgba(236,72,153,0.5)] scale-105 z-10 text-white"; } else if (isRest) cellClass += "bg-black border-neutral-600 opacity-80 cursor-default"; else if (isToday) cellClass += "bg-neutral-800 border-pink-500 animate-pulse ring-2 ring-pink-500/30 z-10"; else if (isCompleted) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.3)]"; else cellClass += "bg-neutral-600 border-neutral-400 opacity-70 hover:border-pink-500 hover:opacity-100"; return (<button key={day.id} onClick={() => !isRest && openLogModal(day, week)} className={cellClass} disabled={isRest} title={`${dayNames[dIndex]}`}>{isEndure24 && <Flame className={`w-3.5 h-3.5 ${activeLog ? 'text-white' : 'text-orange-900 drop-shadow-[0_0_5px_rgba(0,0,0,0.8)]'}`} />}</button>); })}</div>))}</div></div><div className="flex flex-wrap items-center gap-4 mt-6 text-[9px] font-black text-neutral-400 uppercase tracking-widest pt-5 border-t border-white/5"><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-black border-2 border-neutral-600 mr-2 opacity-80"></div> Rest</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-neutral-600 border-2 border-neutral-400 mr-2 opacity-70"></div> Future</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-teal-600 border-2 border-teal-400 mr-2"></div> Done</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-pink-500 border-2 border-pink-400 mr-2 shadow-[0_0_5px_rgba(236,72,153,0.5)]"></div> Logged</span><span className="ml-auto flex flex-wrap gap-3"><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-pink-500 mr-1.5"></div> Build</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-amber-500 mr-1.5"></div> Step Back</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-blue-500 mr-1.5"></div> Peak</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-purple-500 mr-1.5"></div> Taper</span></span></div></div>{trainingPlan.map((week, wIndex) => (
           <div key={week.week} className="bg-neutral-900 rounded-3xl border border-neutral-800 overflow-hidden transition-all shadow-md">
-            <button onClick={() => setExpandedWeek(expandedWeek === week.week ? null : week.week)} className={`w-full flex items-center justify-between p-6 bg-neutral-900 hover:bg-neutral-800/50 transition-colors text-left border-l-8 ${getStageTextColor(week.stage).replace('text', 'border')}`}>
-              <div><div className="flex items-center space-x-3"><h3 className="text-lg font-black text-white italic">Week {week.week}</h3><span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-neutral-950 border border-white/5 ${getStageTextColor(week.stage)}`}>{String(week.stage)}</span></div><p className="text-xs text-neutral-500 font-bold tracking-wide mt-1.5">Begins {week.dateStr}</p></div>
-              <ChevronRight className={`transform transition-transform ${expandedWeek === week.week ? 'rotate-90 text-pink-500' : 'text-neutral-500'}`} />
-            </button>
+            <button onClick={() => setExpandedWeek(expandedWeek === week.week ? null : week.week)} className={`w-full flex items-center justify-between p-6 bg-neutral-900 hover:bg-neutral-800/50 transition-colors text-left border-l-8 ${getStageTextColor(week.stage).replace('text', 'border')}`}><div><div className="flex items-center space-x-3"><h3 className="text-lg font-black text-white italic">Week {week.week}</h3><span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-neutral-950 border border-white/5 ${getStageTextColor(week.stage)}`}>{String(week.stage)}</span></div><p className="text-xs text-neutral-500 font-bold tracking-wide mt-1.5">Begins {week.dateStr}</p></div><ChevronRight className={`transform transition-transform ${expandedWeek === week.week ? 'rotate-90 text-pink-500' : 'text-neutral-500'}`} /></button>
             {expandedWeek === week.week && (
               <div className="divide-y divide-neutral-800/50 border-t border-neutral-800 bg-neutral-950/30">
-                {week.days.map((day, dIndex) => {
-                  const isRest = (day.req === "" && day.opt === "REST");
-                  const isCompleted = completedLogIds.includes(day.id);
-                  const activeLog = logs.find(l => l.dayId === day.id && !l.isSkipped);
-                  const isQuickLog = activeLog?.isQuickLog === true || (activeLog && activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === ''));
+                {week.days.map((day, dIndex) => { 
+                  const isRest = (day.req === "" && day.opt === "REST"); 
+                  const isCompleted = completedLogIds.includes(day.id); 
+                  const activeLog = logs.find(l => l.dayId === day.id && !l.isSkipped); 
+                  const isQuickLog = activeLog?.isQuickLog === true || (activeLog && activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === '')); 
                   return (
                     <div key={day.id} className={`p-5 flex gap-5 transition-colors ${isRest ? 'bg-neutral-950/30' : 'hover:bg-neutral-800/40'}`}>
-                      <div className={`flex-shrink-0 flex flex-col items-center pt-1 w-12 ${!isRest ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`} onClick={(e) => !isRest && toggleQuickLog(e, day, week)} title={isRest ? "Rest Day" : "Tap to toggle mark as done"}>
-                        <span className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 ${isRest ? 'text-neutral-600' : 'text-neutral-400'}`}>{dayNames[dIndex]}</span>
-                        {isCompleted ? <CheckCircle2 className="w-7 h-7 text-teal-400 drop-shadow-[0_0_8px_rgba(45,212,191,0.4)]" /> : isRest ? <div className="w-3 h-3 rounded-full bg-neutral-700 mt-2"></div> : <div className="w-7 h-7 rounded-full border-2 border-neutral-500 hover:border-pink-500 transition-colors mt-1"></div>}
-                      </div>
-                      
-                      <div className={`flex-1 flex flex-col gap-3 ${!isRest ? 'cursor-pointer' : ''}`} onClick={() => !isEditMode && !isRest && openLogModal(day, week)}>
-                        {isRest ? (
-                           <p className="text-base font-medium leading-relaxed text-neutral-500 italic uppercase font-black tracking-widest pt-1">REST</p>
-                        ) : (
-                           <>
-                             {day.req && (
-                               <div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl shadow-inner flex flex-col items-start gap-2">
-                                 <span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span>
-                                 <p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p>
-                               </div>
-                             )}
-                             {day.opt && (
-                               <div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2">
-                                 <span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span>
-                                 <p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p>
-                               </div>
-                             )}
-                           </>
-                        )}
-                        
-                        {isCompleted && activeLog && !isQuickLog && (
-                          <div className="mt-2 p-4 bg-neutral-900/80 border border-teal-500/30 rounded-2xl shadow-lg">
-                            <div className="flex flex-wrap gap-y-2 items-center space-x-5 text-[11px] font-black uppercase tracking-widest text-teal-400">
-                              {activeLog.distance > 0 && <span>{displayDist(activeLog.distance, profile?.unitPref).toFixed(1)} {profile?.unitPref || 'mi'}</span>}
-                              {activeLog.duration > 0 && <span>{activeLog.duration} min</span>}
-                              {activeLog.vibe && <span className="text-lg">{String(activeLog.vibe)}</span>}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {isEditMode && (<button onClick={() => onEditDay(day, wIndex)} className="p-3 bg-neutral-800 hover:bg-pink-600 rounded-xl text-white self-center transition-all shadow-lg"><Edit3 className="w-4 h-4" /></button>)}
+                      <div className={`flex-shrink-0 flex flex-col items-center pt-1 w-12 ${!isRest ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`} onClick={(e) => !isRest && toggleQuickLog(e, day, week)} title={isRest ? "Rest Day" : "Tap to toggle mark as done"}><span className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 ${isRest ? 'text-neutral-600' : 'text-neutral-400'}`}>{dayNames[dIndex]}</span>{isCompleted ? <CheckCircle2 className="w-7 h-7 text-teal-400 drop-shadow-[0_0_8px_rgba(45,212,191,0.4)]" /> : isRest ? <div className="w-3 h-3 rounded-full bg-neutral-700 mt-2"></div> : <div className="w-7 h-7 rounded-full border-2 border-neutral-500 hover:border-pink-500 transition-colors mt-1"></div>}</div>
+                      <div className={`flex-1 flex flex-col gap-3 ${!isRest ? 'cursor-pointer' : ''}`} onClick={() => !isEditMode && !isRest && openLogModal(day, week)}>{isRest ? (<p className="text-base font-medium leading-relaxed text-neutral-500 italic uppercase font-black tracking-widest pt-1">REST</p>) : (<>{day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl shadow-inner flex flex-col items-start gap-2"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p></div>)}{day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p></div>)}</>)}{isCompleted && activeLog && !isQuickLog && (<div className="mt-2 p-4 bg-neutral-900/80 border border-teal-500/30 rounded-2xl shadow-lg"><div className="flex flex-wrap gap-y-2 items-center space-x-5 text-[11px] font-black uppercase tracking-widest text-teal-400">{activeLog.distance > 0 && <span>{displayDist(activeLog.distance, profile?.unitPref).toFixed(1)} {profile?.unitPref || 'mi'}</span>}{activeLog.duration > 0 && <span>{activeLog.duration} min</span>}{activeLog.vibe && <span className="text-lg">{String(activeLog.vibe)}</span>}</div></div>)}</div>{isEditMode && (<button onClick={() => onEditDay(day, wIndex)} className="p-3 bg-neutral-800 hover:bg-pink-600 rounded-xl text-white self-center transition-all shadow-lg"><Edit3 className="w-4 h-4" /></button>)}
                     </div>
-                  );
+                  ); 
                 })}
               </div>
             )}
@@ -1265,37 +783,19 @@ function StatsView({ logs, trainingPlan, profile }) {
 function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
   const [distance, setDistance] = useState(existingLog && existingLog.distance ? (existingLog.distance * (profile?.unitPref === 'km' ? MI_TO_KM : 1)).toFixed(2) : '');
   const [duration, setDuration] = useState(existingLog?.duration || '');
-  const [elevation, setElevation] = useState(existingLog?.elevation || '');
   const [effort, setEffort] = useState(existingLog?.effort || 5);
   const [notes, setNotes] = useState(existingLog?.isQuickLog ? '' : (existingLog?.notes || ''));
   const [vibe, setVibe] = useState(existingLog?.isQuickLog ? '😎' : (existingLog?.vibe || '😎'));
   const [actualDate, setActualDate] = useState(existingLog?.actualDate || new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const [stravaFetchErr, setStravaFetchErr] = useState('');
-  const handleSave = async (e) => { e.preventDefault(); if (!user) return; setSaving(true); const distMiles = Number(distance) / (profile?.unitPref === 'km' ? MI_TO_KM : 1); try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: day.week, distance: distMiles, duration: Number(duration) || 0, elevation: Number(elevation) || 0, effort: Number(effort) || 0, notes, vibe, actualDate, isQuickLog: false, isSkipped: false, updatedAt: new Date().toISOString() }); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
+  const handleSave = async (e) => { e.preventDefault(); if (!user) return; setSaving(true); const distMiles = Number(distance) / (profile?.unitPref === 'km' ? MI_TO_KM : 1); try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: day.week, distance: distMiles, duration: Number(duration) || 0, effort: Number(effort) || 0, notes, vibe, actualDate, isQuickLog: false, isSkipped: false, updatedAt: new Date().toISOString() }); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
   const handleDelete = async () => { if (!user) return; if (!deleteConfirm) { setDeleteConfirm(true); setTimeout(() => setDeleteConfirm(false), 3000); return; } setSaving(true); try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
-  const handleStravaSync = async () => { if (!profile?.stravaAccessToken) { setStravaFetchErr("Strava connection missing."); return; } setSaving(true); setStravaFetchErr(''); let token = profile.stravaAccessToken; if (profile.stravaTokenExpiresAt && Date.now() / 1000 > profile.stravaTokenExpiresAt) { try { const refreshRes = await fetch('https://www.strava.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, refresh_token: profile.stravaRefreshToken, grant_type: 'refresh_token' }) }); const refreshData = await refreshRes.json(); if (refreshData.access_token) { token = refreshData.access_token; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { stravaAccessToken: refreshData.access_token, stravaRefreshToken: refreshData.refresh_token, stravaTokenExpiresAt: refreshData.expires_at }, { merge: true }); } } catch (e) { console.error("Token refresh failed", e); } } try { const response = await fetch('https://www.strava.com/api/v3/athlete/activities?per_page=1', { headers: { 'Authorization': `Bearer ${token}` } }); const data = await response.json(); if (data && data.length > 0) { const activity = data[0]; const distMiles = activity.distance * 0.000621371; const distKm = activity.distance / 1000; setDistance(profile?.unitPref === 'km' ? distKm.toFixed(2) : distMiles.toFixed(2)); setDuration(Math.round(activity.moving_time / 60)); setElevation(Math.round(activity.total_elevation_gain * 3.28084)); setNotes(`Imported from Strava: ${activity.name}`); setVibe('🚀'); } else { setStravaFetchErr("No recent runs found on Strava."); } } catch (err) { console.error(err); setStravaFetchErr("Error connecting to Strava."); } finally { setSaving(false); } };
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayString = dayNames[day.id.split('-')[1] === 'mon' ? 0 : day.id.split('-')[1] === 'tue' ? 1 : day.id.split('-')[1] === 'wed' ? 2 : day.id.split('-')[1] === 'thu' ? 3 : day.id.split('-')[1] === 'fri' ? 4 : day.id.split('-')[1] === 'sat' ? 5 : 6];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300"><div className="absolute inset-0" onClick={onClose}></div><div className="relative w-full max-w-md bg-neutral-900 rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"><div className="flex justify-between items-center p-7 border-b border-white/5"><div><h3 className="text-2xl font-black text-white italic">Log Run</h3><p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.2em] mt-1.5">Week {day.week} • {dayString}</p></div><button onClick={onClose} className="p-3 bg-neutral-800 text-neutral-400 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button></div><div className="p-7 overflow-y-auto">{SHOW_STRAVA_FEATURES && profile?.stravaConnected && (!existingLog || existingLog.isQuickLog) && (<div className="mb-8">{stravaFetchErr && <div className="text-rose-500 text-[10px] uppercase font-black tracking-widest text-center mb-3 bg-rose-500/10 p-2 rounded-xl">{stravaFetchErr}</div>}<button type="button" onClick={handleStravaSync} disabled={saving} className="w-full bg-[#FC4C02] hover:bg-[#E34402] text-white py-4 rounded-xl flex items-center justify-center font-bold transition-colors disabled:opacity-50 shadow-[0_0_15px_rgba(252,76,2,0.3)]"><StravaIcon className="w-5 h-5 mr-3" /><span style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif", fontSize: "14px" }}>{saving ? 'Syncing Activity...' : 'Pull Latest Activity'}</span></button><PoweredByStrava className="justify-center mt-3" /></div>)}<div className="mb-8 space-y-4">{day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl flex flex-col items-start gap-2 shadow-inner"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p></div>)}{day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p></div>)}</div><form id="log-form" onSubmit={handleSave} className="space-y-6"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Date Completed</label><input type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold [color-scheme:dark]" /></div><div className="grid grid-cols-2 gap-5"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Distance ({profile?.unitPref || 'mi'})</label><input type="number" step="0.01" value={distance} onChange={(e) => setDistance(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Time (min)</label><input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div></div><div><div className="flex justify-between items-center mb-3"><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1">Effort Score</label><span className="text-xl font-black text-pink-500 italic">{effort}/10</span></div><input type="range" min="1" max="10" value={effort} onChange={(e) => setEffort(e.target.value)} className="w-full accent-pink-500 h-2 bg-neutral-800 rounded-full appearance-none" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Session Notes</label><textarea rows="3" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white text-sm resize-none focus:outline-none focus:border-pink-500 font-medium" placeholder="How did the blisters feel? Vibe?" /></div></form></div><div className="p-7 border-t border-white/5 bg-neutral-900/50 flex gap-4 pb-safe">{existingLog && (<button type="button" onClick={handleDelete} disabled={saving} className={`border font-black px-5 rounded-2xl transition-all shadow-lg flex items-center justify-center ${deleteConfirm ? 'bg-rose-500 text-white border-rose-500' : 'bg-neutral-800 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-500 border-neutral-700 hover:border-rose-500/50'}`}>{deleteConfirm ? 'Sure?' : <X className="w-5 h-5" />}</button>)}<button type="submit" form="log-form" disabled={saving} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl py-5 shadow-[0_0_25px_rgba(219,39,119,0.3)] transition-all transform active:scale-95">{saving ? 'Transmitting...' : 'Save Log'}</button></div></div></div>
-  );
-}
-
-function AuthScreen({ auth }) {
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
-  const [adminKey, setAdminKey] = useState(''); 
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [clickCount, setClickCount] = useState(0); 
-  const handleSubmit = async (e) => { e.preventDefault(); setError(''); setLoading(true); try { if (!isLogin) { if (inviteCode !== TEAM_INVITE_CODE) throw new Error("Whoops! Incorrect Team Invite Code."); await createUserWithEmailAndPassword(auth, email, password); } else { await signInWithEmailAndPassword(auth, email, password); } } catch (err) { setError(err.message.replace('Firebase:', '').trim()); } finally { setLoading(false); } };
-  return (
-    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden"><div className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity grayscale" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} /><div className="bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative z-10"><div onClick={() => setClickCount(c => c + 1)} className="flex flex-col items-center mb-10 relative z-10 cursor-pointer select-none"><div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6 transition-transform active:scale-90"><Flame className="w-8 h-8 text-white" /></div><h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1><p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">ENDURE 24</p></div>{error && (<div className="bg-rose-500/10 border border-rose-500/50 text-rose-400 text-[10px] font-black uppercase p-4 rounded-2xl mb-8 text-center tracking-widest">{error}</div>)}<form onSubmit={handleSubmit} className="space-y-5 relative z-10">{clickCount >= 5 && (<div className="bg-indigo-500/10 border border-indigo-500/50 p-4 rounded-2xl animate-in zoom-in duration-300"><div className="flex items-center text-indigo-400 text-[9px] font-black uppercase tracking-widest mb-2"><ShieldCheck className="w-3 h-3 mr-2" /> Admin Access Mode</div><input type="password" value={adminKey} onChange={(e) => setAdminKey(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 font-black text-xs" placeholder="ENTER ACCESS KEY" /></div>)}{!isLogin && (<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Team Invite Code</label><input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black tracking-widest" placeholder="Enter secret code" required /></div>)}<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div><button type="submit" disabled={loading} className={`w-full ${adminKey === ADMIN_SECRET_KEY ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/30' : 'bg-pink-600 hover:bg-pink-500 shadow-pink-500/30'} text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px] mt-6 transition-all`}>{loading ? 'Processing...' : (isLogin ? 'Login' : 'Join')}</button></form><button onClick={() => setIsLogin(!isLogin)} className="w-full mt-8 text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] hover:text-white transition-colors relative z-10">{isLogin ? "Sign up here" : "Return to Login"}</button></div></div>
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300"><div className="absolute inset-0" onClick={onClose}></div><div className="relative w-full max-w-md bg-neutral-900 rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"><div className="flex justify-between items-center p-7 border-b border-white/5"><div><h3 className="text-2xl font-black text-white italic">Log Run</h3><p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.2em] mt-1.5">Week {day.week} • {dayString}</p></div><button onClick={onClose} className="p-3 bg-neutral-800 text-neutral-400 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button></div><div className="p-7 overflow-y-auto"><div className="mb-8 space-y-4">{day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl flex flex-col items-start gap-2 shadow-inner"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p></div>)}{day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p></div>)}</div><form id="log-form" onSubmit={handleSave} className="space-y-6"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Date Completed</label><input type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold [color-scheme:dark]" /></div><div className="grid grid-cols-2 gap-5"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Distance ({profile?.unitPref || 'mi'})</label><input type="number" step="0.01" value={distance} onChange={(e) => setDistance(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Time (min)</label><input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div></div><div><div className="flex justify-between items-center mb-3"><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1">Effort Score</label><span className="text-xl font-black text-pink-500 italic">{effort}/10</span></div><input type="range" min="1" max="10" value={effort} onChange={(e) => setEffort(e.target.value)} className="w-full accent-pink-500 h-2 bg-neutral-800 rounded-full appearance-none" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Session Notes</label><textarea rows="3" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white text-sm resize-none focus:outline-none focus:border-pink-500 font-medium" placeholder="How did the blisters feel? Vibe?" /></div></form></div><div className="p-7 border-t border-white/5 bg-neutral-900/50 flex gap-4 pb-safe">{existingLog && (<button type="button" onClick={handleDelete} disabled={saving} className={`border font-black px-5 rounded-2xl transition-all shadow-lg flex items-center justify-center ${deleteConfirm ? 'bg-rose-500 text-white border-rose-500' : 'bg-neutral-800 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-500 border-neutral-700 hover:border-rose-500/50'}`}>{deleteConfirm ? 'Sure?' : <X className="w-5 h-5" />}</button>)}<button type="submit" form="log-form" disabled={saving} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl py-5 shadow-[0_0_25px_rgba(219,39,119,0.3)] transition-all transform active:scale-95">{saving ? 'Transmitting...' : 'Save Log'}</button></div></div></div>
   );
 }
 
@@ -1306,7 +806,8 @@ function ProfileSetupModal({ user, db, appId, existingProfile, onClose, onResetP
   const [unitPref, setUnitPref] = useState(existingProfile?.unitPref || 'mi');
   const [saving, setSaving] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
-  const [isGhost, setIsGhost] = useState(existingProfile?.role === 'admin');
+  const [isGhost, setIsGhost] = useState(existingProfile?.role === 'admin' || user?.isAnonymous);
+
   const handleSave = async (e) => { e.preventDefault(); if (!name.trim()) return; setSaving(true); try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { displayName: name, avatarEmoji, avatarBg, unitPref, role: isGhost ? 'admin' : 'member', createdAt: existingProfile ? existingProfile.createdAt : new Date().toISOString() }, { merge: true }); onClose(); } catch(err) { console.error(err); } finally { setSaving(false); } };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-in fade-in duration-300"><div className="bg-neutral-900 border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative max-h-[95vh] overflow-y-auto">{(existingProfile || isGhost) && (<button onClick={onClose} className="absolute top-6 right-6 p-3 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button>)}<div className="text-center mb-10 relative z-10"><div className={`w-24 h-24 rounded-full bg-gradient-to-br ${String(avatarBg)} flex items-center justify-center text-5xl shadow-2xl mx-auto mb-6 border-4 border-white/10 relative`}>{String(avatarEmoji)}{isGhost && <div className="absolute -bottom-1 -right-1 bg-indigo-600 p-1.5 rounded-full border-4 border-neutral-900"><ShieldCheck className="w-4 h-4 text-white" /></div>}</div><h2 className="text-2xl font-black text-white italic tracking-tight">{existingProfile ? 'Edit Profile' : 'Welcome, Sister.'}</h2>{isGhost && <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest mt-2">Active Ghost Protocol</p>}</div><form onSubmit={handleSave} className="space-y-8 text-left relative z-10"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Runner Identity</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-5 text-white font-black focus:outline-none focus:border-pink-500 shadow-inner" placeholder="e.g. Speedy Sarah" required /></div>
