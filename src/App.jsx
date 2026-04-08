@@ -26,6 +26,12 @@ const LAP_DISTANCE = 5; // Miles
 const MI_TO_KM = 1.60934;
 const PLAN_VERSION = 6; // 🚀 Upgraded schema for explicit skip support on auto-completed weeks
 
+// ==========================================
+// 🔗 STRAVA API CREDENTIALS
+// ==========================================
+const STRAVA_CLIENT_ID = '222239'; 
+const STRAVA_CLIENT_SECRET = '06e729f59a6a23d0fa778aab2f254e71c41a03f0'; 
+
 // --- DATE CONSTANTS ---
 const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); 
 const EVENT_DATE_DEFAULT = new Date('2026-06-06T12:00:00'); 
@@ -246,6 +252,41 @@ export default function App() {
     link.href = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='7' fill='%23ec4899'/%3E%3Cpath d='M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
   }, []);
 
+  // Handle Strava OAuth Return
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    if (code && user && STRAVA_CLIENT_ID && STRAVA_CLIENT_SECRET) {
+      const exchangeToken = async () => {
+         try {
+           const res = await fetch('https://www.strava.com/oauth/token', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+               client_id: STRAVA_CLIENT_ID,
+               client_secret: STRAVA_CLIENT_SECRET,
+               code: code,
+               grant_type: 'authorization_code'
+             })
+           });
+           const data = await res.json();
+           if (data.access_token) {
+              await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), {
+                stravaConnected: true,
+                stravaAccessToken: data.access_token,
+                stravaRefreshToken: data.refresh_token,
+                stravaTokenExpiresAt: data.expires_at
+              }, { merge: true });
+           }
+           window.history.replaceState({}, document.title, window.location.pathname);
+         } catch (e) {
+           console.error("Strava auth error", e);
+         }
+      };
+      exchangeToken();
+    }
+  }, [user, db, appId]);
+
   useEffect(() => {
     const initAuth = async () => {
       if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -359,12 +400,24 @@ export default function App() {
   };
 
   const toggleStrava = async () => {
-    if (!user) return;
+    if (!user) return null;
     try {
-      const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid);
-      await setDoc(profileRef, { stravaConnected: !(profile?.stravaConnected || false) }, { merge: true });
+      if (profile?.stravaConnected) {
+        const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid);
+        await updateDoc(profileRef, { stravaConnected: false, stravaAccessToken: null, stravaRefreshToken: null, stravaTokenExpiresAt: null });
+        return null;
+      } else {
+        if (!STRAVA_CLIENT_ID) {
+          return "Missing Keys in Code";
+        }
+        const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+        const authUrl = `https://www.strava.com/oauth/authorize?client_id=${STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${redirectUri}&approval_prompt=force&scope=activity:read_all`;
+        window.location.href = authUrl;
+        return null;
+      }
     } catch (e) {
       console.error(e);
+      return "Connection Error";
     }
   };
 
@@ -862,6 +915,8 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
 
 function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completionPct, profile, currentWeekNum, diffDays, toggleStrava }) {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0 });
+  const [stravaErr, setStravaErr] = useState('');
+  
   useEffect(() => {
     const timer = setInterval(() => {
       const diff = EVENT_DATE_DEFAULT.getTime() - Date.now();
@@ -903,8 +958,8 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
         <div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-pink-500/30 transition-all"><Activity className="text-pink-500 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{displayDist(totalMiles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Distance Logged ({profile?.unitPref || 'mi'})</div></div></div>
         <div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-teal-500/30 transition-all"><CalendarDays className="text-teal-400 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{Number(timeLeft.days)}d</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Until Race</div></div></div>
         <div className="col-span-2 bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex items-center justify-between shadow-2xl">
-          <div className="flex items-center space-x-3"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${profile?.stravaConnected ? 'bg-[#FC4C02]/20 text-[#FC4C02]' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}><StravaIcon className="w-6 h-6" /></div><div><h4 className="font-black text-white text-sm">Strava Connect</h4><p className="text-[10px] uppercase font-bold text-neutral-500 mt-0.5 tracking-widest">{profile?.stravaConnected ? 'Status: Active' : 'Status: Offline'}</p></div></div>
-          <button onClick={toggleStrava} className={`px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${profile?.stravaConnected ? 'bg-neutral-950 border border-neutral-800 text-neutral-500 hover:text-white' : 'bg-[#FC4C02] text-white hover:bg-[#E34402] shadow-[0_0_15px_rgba(252,76,2,0.3)]'}`}>{profile?.stravaConnected ? 'Unlink' : 'Connect'}</button>
+          <div className="flex items-center space-x-3"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${profile?.stravaConnected ? 'bg-[#FC4C02]/20 text-[#FC4C02]' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}><StravaIcon className="w-6 h-6" /></div><div><h4 className="font-black text-white text-sm">Strava Connect</h4><p className="text-[10px] uppercase font-bold text-neutral-500 mt-0.5 tracking-widest">{profile?.stravaConnected ? 'Status: Active' : (stravaErr ? <span className="text-rose-500">{stravaErr}</span> : 'Status: Offline')}</p></div></div>
+          <button onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} className={`px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${profile?.stravaConnected ? 'bg-neutral-950 border border-neutral-800 text-neutral-500 hover:text-white' : 'bg-[#FC4C02] text-white hover:bg-[#E34402] shadow-[0_0_15px_rgba(252,76,2,0.3)]'}`}>{profile?.stravaConnected ? 'Unlink' : 'Connect'}</button>
         </div>
       </div>
       
@@ -1291,6 +1346,7 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
   const [actualDate, setActualDate] = useState(existingLog?.actualDate || new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [stravaFetchErr, setStravaFetchErr] = useState('');
   
   const handleSave = async (e) => {
     e.preventDefault(); if (!user) return; setSaving(true);
@@ -1309,13 +1365,69 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
     try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); }
   };
 
-  const handleStravaSync = () => {
-    setDistance(profile?.unitPref === 'km' ? '5.1' : '3.2'); setDuration('31'); setElevation('120'); setNotes('Imported from Strava'); setVibe('🚀'); 
+  const handleStravaSync = async () => {
+    if (!profile?.stravaAccessToken) {
+      setStravaFetchErr("Strava connection missing.");
+      return;
+    }
+    setSaving(true);
+    setStravaFetchErr('');
+    let token = profile.stravaAccessToken;
+    
+    if (profile.stravaTokenExpiresAt && Date.now() / 1000 > profile.stravaTokenExpiresAt) {
+       try {
+          const refreshRes = await fetch('https://www.strava.com/oauth/token', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+               client_id: STRAVA_CLIENT_ID,
+               client_secret: STRAVA_CLIENT_SECRET,
+               refresh_token: profile.stravaRefreshToken,
+               grant_type: 'refresh_token'
+             })
+          });
+          const refreshData = await refreshRes.json();
+          if (refreshData.access_token) {
+             token = refreshData.access_token;
+             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), {
+               stravaAccessToken: refreshData.access_token,
+               stravaRefreshToken: refreshData.refresh_token,
+               stravaTokenExpiresAt: refreshData.expires_at
+             }, { merge: true });
+          }
+       } catch (e) {
+          console.error("Token refresh failed", e);
+       }
+    }
+
+    try {
+      const response = await fetch('https://www.strava.com/api/v3/athlete/activities?per_page=1', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      
+      if (data && data.length > 0) {
+        const activity = data[0];
+        const distMiles = activity.distance * 0.000621371;
+        const distKm = activity.distance / 1000;
+        setDistance(profile?.unitPref === 'km' ? distKm.toFixed(2) : distMiles.toFixed(2));
+        setDuration(Math.round(activity.moving_time / 60));
+        setElevation(Math.round(activity.total_elevation_gain * 3.28084));
+        setNotes(`Imported from Strava: ${activity.name}`);
+        setVibe('🚀');
+      } else {
+        setStravaFetchErr("No recent runs found on Strava.");
+      }
+    } catch (err) {
+      console.error(err);
+      setStravaFetchErr("Error connecting to Strava.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayString = dayNames[day.id.split('-')[1] === 'mon' ? 0 : day.id.split('-')[1] === 'tue' ? 1 : day.id.split('-')[1] === 'wed' ? 2 : day.id.split('-')[1] === 'thu' ? 3 : day.id.split('-')[1] === 'fri' ? 4 : day.id.split('-')[1] === 'sat' ? 5 : 6];
-
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300">
@@ -1323,7 +1435,12 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
       <div className="relative w-full max-w-md bg-neutral-900 rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
         <div className="flex justify-between items-center p-7 border-b border-white/5"><div><h3 className="text-2xl font-black text-white italic">Log Run</h3><p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.2em] mt-1.5">Week {day.week} • {dayString}</p></div><button onClick={onClose} className="p-3 bg-neutral-800 text-neutral-400 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button></div>
         <div className="p-7 overflow-y-auto">
-          {profile?.stravaConnected && (!existingLog || existingLog.isQuickLog) && (<button type="button" onClick={handleStravaSync} className="w-full mb-6 bg-[#FC4C02]/10 border border-[#FC4C02]/30 text-[#FC4C02] hover:bg-[#FC4C02]/20 py-4 rounded-2xl flex items-center justify-center text-[10px] font-black uppercase tracking-widest transition-colors"><StravaIcon className="w-5 h-5 mr-3" /> Pull Latest from Strava</button>)}
+          {profile?.stravaConnected && (!existingLog || existingLog.isQuickLog) && (
+             <>
+               {stravaFetchErr && <div className="text-rose-500 text-[10px] uppercase font-black tracking-widest text-center mb-3 bg-rose-500/10 p-2 rounded-xl">{stravaFetchErr}</div>}
+               <button type="button" onClick={handleStravaSync} disabled={saving} className="w-full mb-6 bg-[#FC4C02]/10 border border-[#FC4C02]/30 text-[#FC4C02] hover:bg-[#FC4C02]/20 py-4 rounded-2xl flex items-center justify-center text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50"><StravaIcon className="w-5 h-5 mr-3" /> {saving ? 'Syncing...' : 'Pull Latest from Strava'}</button>
+             </>
+          )}
           
           <div className="mb-8 space-y-4">
              {day.req && (
