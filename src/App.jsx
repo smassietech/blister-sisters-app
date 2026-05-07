@@ -24,7 +24,7 @@ import {
 // ==========================================
 const DEBUG_FORCE_RACE_DAY = false; 
 const TEAM_INVITE_CODE = 'ENDURE24';
-const ADMIN_SECRET_KEY = 'SISTER_HQ_2026'; 
+const ADMIN_SECRET_KEY = 'SISTER_HQ_2026';
 
 // 🔌 STRAVA MASTER SWITCH
 const SHOW_STRAVA_FEATURES = false; 
@@ -36,12 +36,12 @@ const PLAN_VERSION = 7; // 🚀 Bumped to 7 to force sync Week 7 fixes to Firest
 // ==========================================
 // 🔗 STRAVA API CREDENTIALS
 // ==========================================
-const STRAVA_CLIENT_ID = '222239'; 
+const STRAVA_CLIENT_ID = '222239';
 const STRAVA_CLIENT_SECRET = '06e729f59a6a23d0fa778aab2f254e71c41a03f0'; 
 
 // --- DATE CONSTANTS ---
 const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); 
-const EVENT_DATE_DEFAULT = new Date('2026-06-06T12:00:00'); 
+const EVENT_DATE_DEFAULT = new Date('2026-06-06T12:00:00');
 
 // --- UTILITY FUNCTIONS ---
 function getCurrentTrainingDay() {
@@ -81,7 +81,7 @@ const DEFAULT_TRAINING_PLAN = [
     { id: "w3-tue", day: "Tuesday", type: "rest", req: "", opt: "REST" }, 
     { id: "w3-wed", day: "Wednesday", type: "hills", req: "Hill sprints:\nwarm up 2 miles\n8-10x 40 secs up hill\nrecovery on way back down\nCool down 2 miles", opt: "" }, 
     { id: "w3-thu", day: "Thursday", type: "run", req: "", opt: "40 mins Easy" }, 
-    { id: "w3-fri", day: "Friday", type: "run", req: "", opt: "30 min + 60 min\nSo two runs in one day. Can be combined as one 90 minute run if preferred" }, 
+    { id: "w3-fri", day: "Friday", type: "run", req: "", opt: "30 min + 60 min\nSo two runs in one day.\nCan be combined as one 90 minute run if preferred" }, 
     { id: "w3-sat", day: "Saturday", type: "rest", req: "", opt: "REST" }, 
     { id: "w3-sun", day: "Sunday", type: "run", req: "Long run: 2 hours easy pace", opt: "" } 
   ] },
@@ -191,7 +191,7 @@ const DEFAULT_TRAINING_PLAN = [
     { id: "w15-thu", day: "Thursday", type: "rest", req: "", opt: "REST" }, 
     { id: "w15-fri", day: "Friday", type: "run", req: "30 mins easy", opt: "" }, 
     { id: "w15-sat", day: "Saturday", type: "rest", req: "", opt: "REST" }, 
-    { id: "w15-sun", day: "Sunday", type: "race", req: "ENDURE 24! READING 🔥", opt: "" } 
+    { id: "w15-sun", day: "Sunday", type: "race", req: "ENDURE 24!\nREADING 🔥", opt: "" } 
   ] }
 ];
 
@@ -225,7 +225,6 @@ const PoweredByStrava = ({ className = "" }) => (
     <span className="text-[11px] text-white font-black tracking-tighter" style={{ fontFamily: "Helvetica Neue, Helvetica, Arial, sans-serif" }}>STRAVA</span>
   </div>
 );
-
 const StravaConnectButton = ({ onClick }) => (
   <button onClick={onClick} className="h-[48px] hover:opacity-90 transition-opacity border-none outline-none bg-transparent p-0 flex-shrink-0">
     <img 
@@ -264,7 +263,7 @@ export default function App() {
   const [showProfileSetup, setShowProfileSetup] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [planEditDay, setPlanEditDay] = useState(null);
-  
+
   const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'blister-sisters-app';
   
@@ -273,7 +272,7 @@ export default function App() {
   const db = useMemo(() => getFirestore(app), [app]);
 
   const { week: currentWeekNum, dayIndex, diffDays } = useMemo(() => getCurrentTrainingDay(), []);
-
+  
   const isRaceDay = useMemo(() => {
     if (DEBUG_FORCE_RACE_DAY) return true;
     const now = new Date();
@@ -361,17 +360,19 @@ export default function App() {
     const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'laps'), (s) => {
       setRelayLaps(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.lapNumber - b.lapNumber));
     });
-
+    
     const unsubMeta = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
       if (s.exists()) setRaceMeta({ totalLaps: 25, ...s.data() });
     });
-
-    const unsubPlan = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), async (s) => {
+    
+    // 🔥 FIX: Listen for the user's custom plan, not the public one
+    const unsubPlan = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'training_plan'), async (s) => {
       if (s.exists() && s.data().version === PLAN_VERSION) {
+        // They have a custom plan, load it!
         setTrainingPlan(s.data().weeks);
       } else {
-        // 🔥 FORCE SYNC: If local code version is newer than DB version, overwrite the DB
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN });
+        // They haven't made changes yet (or there's a new version), use the default template locally
+        setTrainingPlan(DEFAULT_TRAINING_PLAN);
       }
       setLoading(false);
     });
@@ -430,8 +431,18 @@ export default function App() {
     const updatedPlan = [...trainingPlan];
     const day = updatedPlan[weekIndex].days.find(d => d.id === dayId);
     if (day) { day.req = reqText; day.opt = optText; }
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: updatedPlan });
-    setPlanEditDay(null);
+    
+    // 🔥 FIX: Save to the individual user's private folder instead of the public master plan
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'training_plan'), { 
+        version: PLAN_VERSION, 
+        weeks: updatedPlan 
+      });
+      setPlanEditDay(null);
+    } catch (error) {
+      console.error("Firebase Save Error: ", error);
+      alert("Failed to save your workout. Please try again.");
+    }
   };
 
   const resetPlanToDefault = async () => {
@@ -461,6 +472,7 @@ export default function App() {
   };
 
   if (loading) return <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center text-pink-500 font-sans font-black uppercase tracking-widest"><Watch className="animate-spin w-12 h-12 mb-6" /> Mission Control...</div>;
+  
   if (!user) return <AuthScreen auth={auth} />;
 
   return (
@@ -534,7 +546,7 @@ function AuthScreen({ auth }) {
   const [adminKey, setAdminKey] = useState(''); 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [clickCount, setClickCount] = useState(0); 
+  const [clickCount, setClickCount] = useState(0);
 
   const handleGhostLogin = async () => {
     if (adminKey !== ADMIN_SECRET_KEY) return;
@@ -547,20 +559,20 @@ function AuthScreen({ auth }) {
       setLoading(false);
     }
   };
-  
+
   const handleSubmit = async (e) => { 
     e.preventDefault(); 
     setError(''); 
-    setLoading(true); 
+    setLoading(true);
     try { 
       if (!isLogin) { 
-        if (inviteCode !== TEAM_INVITE_CODE) throw new Error("Whoops! Incorrect Team Invite Code."); 
+        if (inviteCode !== TEAM_INVITE_CODE) throw new Error("Whoops! Incorrect Team Invite Code.");
         await createUserWithEmailAndPassword(auth, email, password); 
       } else { 
-        await signInWithEmailAndPassword(auth, email, password); 
+        await signInWithEmailAndPassword(auth, email, password);
       } 
     } catch (err) { 
-      setError(err.message.replace('Firebase:', '').trim()); 
+      setError(err.message.replace('Firebase:', '').trim());
     } finally { 
       setLoading(false); 
     } 
@@ -572,7 +584,7 @@ function AuthScreen({ auth }) {
       <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative z-10">
         <div onClick={() => setClickCount(c => c + 1)} className="flex flex-col items-center mb-10 relative z-10 cursor-pointer select-none">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6 transition-transform active:scale-90">
-             <Flame className="w-8 h-8 text-white" />
+            <Flame className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1>
           <p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">ENDURE 24</p>
@@ -608,23 +620,51 @@ function RelayBoard({ relayLaps, user, db, appId, currentProfile, profiles = [],
   const [editingLapId, setEditingLapId] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+
   const getLapRef = (lapNumber) => doc(db, 'artifacts', appId, 'public', 'data', 'laps', `lap_${lapNumber}`);
-  const claimLap = async (lapNumber) => { if (!user || !currentProfile) return; await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: user.uid, runnerName: String(currentProfile.displayName || "Unknown Sister"), status: 'claimed', updatedAt: Date.now() }, { merge: true }); };
-  const startLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { status: 'running', startTime: Date.now() }, { merge: true }); };
-  const finishLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { status: 'complete', endTime: Date.now() }, { merge: true }); };
-  const unclaimLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: null, runnerName: null, status: 'open', startTime: null, endTime: null, updatedAt: Date.now() }, { merge: true }); };
+
+  const claimLap = async (lapNumber) => { if (!user || !currentProfile) return;
+    await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: user.uid, runnerName: String(currentProfile.displayName || "Unknown Sister"), status: 'claimed', updatedAt: Date.now() }, { merge: true });
+  };
+  const startLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { status: 'running', startTime: Date.now() }, { merge: true });
+  };
+  const finishLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { status: 'complete', endTime: Date.now() }, { merge: true });
+  };
+  const unclaimLap = async (lapNumber) => { await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: null, runnerName: null, status: 'open', startTime: null, endTime: null, updatedAt: Date.now() }, { merge: true });
+  };
   const deleteLap = async (lapNumber) => { await deleteDoc(getLapRef(lapNumber)); };
-  const createNextLap = async () => { const nextLapNum = maxLap + 1; await setDoc(getLapRef(nextLapNum), { lapNumber: nextLapNum, runnerId: null, runnerName: null, status: 'open', createdAt: Date.now() }); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { totalLaps: nextLapNum }); };
-  const formatForInput = (timestamp) => { if (!timestamp) return ''; const d = new Date(timestamp); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,16); };
-  const parseFromInput = (str) => { if (!str) return null; return new Date(str).getTime(); };
-  const startEditing = (lap) => { setEditingLapId(lap.lapNumber); setEditData({ runnerId: lap.runnerId || '', status: lap.status || 'open', startTime: formatForInput(lap.startTime), endTime: formatForInput(lap.endTime) }); setDeleteConfirm(null); };
-  const saveEdit = async (lapNumber) => { const assignee = profiles.find(p => p.id === editData.runnerId); await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: assignee ? assignee.id : null, runnerName: assignee ? String(assignee.displayName) : null, status: editData.status, startTime: parseFromInput(editData.startTime), endTime: parseFromInput(editData.endTime), updatedAt: Date.now() }, { merge: true }); setEditingLapId(null); };
-  const executeDelete = async (lapNumber) => { if (deleteConfirm === lapNumber) { await deleteDoc(getLapRef(lapNumber)); setEditingLapId(null); setDeleteConfirm(null); } else { setDeleteConfirm(lapNumber); setTimeout(() => setDeleteConfirm(null), 3000); } };
-  const getEstStartTime = (lapNum, displayLapsArray) => { if (!raceMeta?.startTime) return null; const thisLap = displayLapsArray.find(l => l.lapNumber === lapNum); if (thisLap && thisLap.startTime) return new Date(thisLap.startTime); let lastKnownLap = null; for (let i = lapNum - 1; i >= 1; i--) { const l = displayLapsArray.find(x => x.lapNumber === i); if (l && (l.endTime || l.startTime)) { lastKnownLap = l; break; } } let baseTime; let lapsToAdd; if (lastKnownLap) { if (lastKnownLap.endTime) { baseTime = lastKnownLap.endTime; lapsToAdd = lapNum - lastKnownLap.lapNumber - 1; } else if (lastKnownLap.startTime) { baseTime = lastKnownLap.startTime; lapsToAdd = lapNum - lastKnownLap.lapNumber; } } else { baseTime = raceMeta.startTime; lapsToAdd = lapNum - 1; } return new Date(baseTime + (lapsToAdd * 50 * 60000)); };
+
+  const createNextLap = async () => { const nextLapNum = maxLap + 1;
+    await setDoc(getLapRef(nextLapNum), { lapNumber: nextLapNum, runnerId: null, runnerName: null, status: 'open', createdAt: Date.now() });
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { totalLaps: nextLapNum }); };
+
+  const formatForInput = (timestamp) => { if (!timestamp) return ''; const d = new Date(timestamp);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,16); };
+  const parseFromInput = (str) => { if (!str) return null;
+    return new Date(str).getTime(); };
+  const startEditing = (lap) => { setEditingLapId(lap.lapNumber);
+    setEditData({ runnerId: lap.runnerId || '', status: lap.status || 'open', startTime: formatForInput(lap.startTime), endTime: formatForInput(lap.endTime) }); setDeleteConfirm(null); };
+
+  const saveEdit = async (lapNumber) => { const assignee = profiles.find(p => p.id === editData.runnerId);
+    await setDoc(getLapRef(lapNumber), { lapNumber, runnerId: assignee ? assignee.id : null, runnerName: assignee ? String(assignee.displayName) : null, status: editData.status, startTime: parseFromInput(editData.startTime), endTime: parseFromInput(editData.endTime), updatedAt: Date.now() }, { merge: true });
+    setEditingLapId(null); };
+  const executeDelete = async (lapNumber) => { if (deleteConfirm === lapNumber) { await deleteDoc(getLapRef(lapNumber)); setEditingLapId(null); setDeleteConfirm(null);
+    } else { setDeleteConfirm(lapNumber); setTimeout(() => setDeleteConfirm(null), 3000); } };
+
+  const getEstStartTime = (lapNum, displayLapsArray) => { if (!raceMeta?.startTime) return null; const thisLap = displayLapsArray.find(l => l.lapNumber === lapNum);
+    if (thisLap && thisLap.startTime) return new Date(thisLap.startTime); let lastKnownLap = null;
+    for (let i = lapNum - 1; i >= 1; i--) { const l = displayLapsArray.find(x => x.lapNumber === i);
+      if (l && (l.endTime || l.startTime)) { lastKnownLap = l; break; } } let baseTime; let lapsToAdd;
+    if (lastKnownLap) { if (lastKnownLap.endTime) { baseTime = lastKnownLap.endTime; lapsToAdd = lapNum - lastKnownLap.lapNumber - 1;
+      } else if (lastKnownLap.startTime) { baseTime = lastKnownLap.startTime; lapsToAdd = lapNum - lastKnownLap.lapNumber; } } else { baseTime = raceMeta.startTime;
+      lapsToAdd = lapNum - 1; } return new Date(baseTime + (lapsToAdd * 50 * 60000)); };
+
   const highestLap = relayLaps.length > 0 ? Math.max(...relayLaps.map(l => l.lapNumber)) : 0;
   const maxLap = Math.max(raceMeta?.totalLaps || 25, highestLap);
   const displayLaps = [];
-  for (let i = 1; i <= maxLap; i++) { const existing = relayLaps.find(l => l.lapNumber === i); if (existing) displayLaps.push(existing); else displayLaps.push({ id: `lap_${i}`, lapNumber: i, status: 'open' }); }
+  for (let i = 1; i <= maxLap; i++) { const existing = relayLaps.find(l => l.lapNumber === i);
+    if (existing) displayLaps.push(existing); else displayLaps.push({ id: `lap_${i}`, lapNumber: i, status: 'open' });
+  }
 
   return (
     <div className="space-y-4 pb-8">
@@ -660,16 +700,19 @@ function RaceDayPlanView({ relayLaps, user, db, appId, currentProfile, profiles,
 }
 
 function TeamView({ profiles, relayLaps, user, db, appId, currentProfile, raceMeta, isRaceDay }) {
-  const [activeTab, setActiveTab] = useState('roster'); 
+  const [activeTab, setActiveTab] = useState('roster');
   const [showSettings, setShowSettings] = useState(false);
   const sortedProfiles = [...profiles].sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
+
   useEffect(() => { if (isRaceDay && activeTab === 'relay') setActiveTab('roster'); }, [isRaceDay, activeTab]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black tracking-tight">Team</h2><button onClick={() => setShowSettings(true)} className="flex items-center bg-neutral-800 text-neutral-300 hover:text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors shadow-xl"><Settings className="w-3.5 h-3.5 mr-2" /> Event Settings</button></div>
       {!isRaceDay && (<div className="flex space-x-2 bg-neutral-900 p-1.5 rounded-xl border border-neutral-800 shadow-xl mb-6"><button onClick={() => setActiveTab('roster')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'roster' ? 'bg-neutral-800 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Roster</button><button onClick={() => setActiveTab('relay')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg ${activeTab === 'relay' ? 'bg-pink-600 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-300'}`}>Relay Board</button></div>)}
-      {activeTab === 'roster' && (<div className="space-y-4">{sortedProfiles.map((p) => { const claimedLaps = relayLaps.filter(l => l.runnerId === p.id).map(l => l.lapNumber); return (<div key={p.id} className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 shadow-2xl relative overflow-hidden"><div className="flex items-center space-x-4 mb-4"><div className={`w-14 h-14 rounded-full bg-gradient-to-br ${String(p.avatarBg || 'from-pink-500 to-teal-400')} flex items-center justify-center text-2xl shadow-lg border-2 border-white/10 shrink-0`}>{String(p.avatarEmoji || '?')}</div><div><p className="font-black text-white text-lg leading-tight">{String(p.displayName || 'Anon')}</p><p className="text-[10px] text-pink-400 uppercase font-black tracking-widest mt-1">{Number(p.totalRuns || 0)} Sessions • {displayDist(Number(p.totalMiles || 0), currentProfile?.unitPref).toFixed(1)} {currentProfile?.unitPref || 'mi'}</p></div></div><div className="bg-neutral-950 rounded-2xl p-4 border border-white/5"><h4 className="text-[9px] uppercase tracking-[0.2em] text-neutral-500 font-black mb-3 flex items-center"><ListChecks className="w-3 h-3 mr-1.5" /> Race Day Laps</h4>{claimedLaps.length > 0 ? (<div className="flex flex-wrap gap-2">{claimedLaps.map(lapNum => (<span key={lapNum} className="bg-teal-500/10 border border-teal-500/20 text-teal-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-inner">Lap {lapNum}</span>))}</div>) : (<p className="text-[10px] text-neutral-600 italic font-bold">Waiting for assignments...</p>)}</div></div>); })}</div>)}
+      {activeTab === 'roster' && (<div className="space-y-4">{sortedProfiles.map((p) => { const claimedLaps = relayLaps.filter(l => l.runnerId === p.id).map(l => l.lapNumber);
+        return (<div key={p.id} className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 shadow-2xl relative overflow-hidden"><div className="flex items-center space-x-4 mb-4"><div className={`w-14 h-14 rounded-full bg-gradient-to-br ${String(p.avatarBg || 'from-pink-500 to-teal-400')} flex items-center justify-center text-2xl shadow-lg border-2 border-white/10 shrink-0`}>{String(p.avatarEmoji || '?')}</div><div><p className="font-black text-white text-lg leading-tight">{String(p.displayName || 'Anon')}</p><p className="text-[10px] text-pink-400 uppercase font-black tracking-widest mt-1">{Number(p.totalRuns || 0)} Sessions • {displayDist(Number(p.totalMiles || 0), currentProfile?.unitPref).toFixed(1)} {currentProfile?.unitPref || 'mi'}</p></div></div><div className="bg-neutral-950 rounded-2xl p-4 border border-white/5"><h4 className="text-[9px] uppercase tracking-[0.2em] text-neutral-500 font-black mb-3 flex items-center"><ListChecks className="w-3 h-3 mr-1.5" /> Race Day Laps</h4>{claimedLaps.length > 0 ? (<div className="flex flex-wrap gap-2">{claimedLaps.map(lapNum => (<span key={lapNum} className="bg-teal-500/10 border border-teal-500/20 text-teal-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-inner">Lap {lapNum}</span>))}</div>) : (<p className="text-[10px] text-neutral-600 italic font-bold">Waiting for assignments...</p>)}</div></div>);
+      })}</div>)}
       {activeTab === 'relay' && !isRaceDay && (<RelayBoard relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={currentProfile} profiles={profiles} raceMeta={raceMeta} />)}
       {showSettings && (<RaceSettingsModal raceMeta={raceMeta} db={db} appId={appId} currentProfile={currentProfile} onClose={() => setShowSettings(false)} />)}
     </div>
@@ -678,8 +721,12 @@ function TeamView({ profiles, relayLaps, user, db, appId, currentProfile, raceMe
 
 function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
   const [resetConfirm, setResetConfirm] = useState(false);
-  const updateRaceMeta = async (field, val) => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { [field]: val }, { merge: true }); };
-  const resetPlanToDefault = async () => { if (!resetConfirm) { setResetConfirm(true); setTimeout(() => setResetConfirm(false), 3000); return; } await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN }); onClose(); };
+
+  const updateRaceMeta = async (field, val) => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), { [field]: val }, { merge: true });
+  };
+  const resetPlanToDefault = async () => { if (!resetConfirm) { setResetConfirm(true); setTimeout(() => setResetConfirm(false), 3000); return;
+    } await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN }); onClose(); };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-neutral-900 border border-pink-500/30 rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl relative"><button onClick={onClose} className="absolute top-6 right-6 p-2 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-4 h-4" /></button><h3 className="text-2xl font-black text-white mb-6 italic">Event Settings</h3><div className="space-y-5"><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Total Relay Laps</label><input type="number" value={Number(raceMeta.totalLaps || 25)} onChange={(e) => updateRaceMeta('totalLaps', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Team Goal ({currentProfile?.unitPref || 'Miles'})</label><input type="number" value={Number(raceMeta.goalMiles || 100)} onChange={(e) => updateRaceMeta('goalMiles', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Race Start Time</label><input type="datetime-local" value={new Date((raceMeta.startTime || Date.now()) - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0,16)} onChange={(e) => updateRaceMeta('startTime', new Date(e.target.value).getTime())} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 [color-scheme:dark] shadow-inner font-bold" /></div></div><div className="mt-8 pt-6 border-t border-white/5"><h4 className="text-[10px] font-black text-rose-500 uppercase block mb-3 tracking-widest">Danger Zone</h4><button onClick={resetPlanToDefault} className={`w-full ${resetConfirm ? 'bg-rose-500 text-white' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white'} border border-rose-500/30 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center transition-all shadow-lg`}><RefreshCw className="w-4 h-4 mr-2" /> {resetConfirm ? 'Double Tap to Reset Plan' : 'Master Reset Team Plan'}</button></div></div>
@@ -689,7 +736,9 @@ function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
 
 function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   const [elapsed, setElapsed] = useState('');
+
   useEffect(() => { const timer = setInterval(() => { const diff = Date.now() - (raceMeta.startTime || Date.now()); if (diff < 0) { setElapsed('Starting Soon...'); return; } const hours = Math.floor(diff / 3600000); const mins = Math.floor((diff % 3600000) / 60000); const secs = Math.floor((diff % 60000) / 1000); setElapsed(`${hours}h ${mins}m ${secs}s`); }, 1000); return () => clearInterval(timer); }, [raceMeta.startTime]);
+
   const completedLaps = laps.filter(l => l.status === 'complete');
   const runningLap = laps.find(l => l.status === 'running');
   const nextLap = laps.find(l => l.status === 'claimed');
@@ -709,7 +758,9 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
 function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completionPct, profile, currentWeekNum, diffDays, toggleStrava }) {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0 });
   const [stravaErr, setStravaErr] = useState('');
+
   useEffect(() => { const timer = setInterval(() => { const diff = EVENT_DATE_DEFAULT.getTime() - Date.now(); if (diff > 0) setTimeLeft({ days: Math.floor(diff/86400000), hours: Math.floor((diff%86400000)/3600000) }); }, 1000); return () => clearInterval(timer); }, []);
+
   const currentDayNumber = Math.min(Math.max(diffDays + 1, 1), 105);
   const isTodayRest = todayWorkout && todayWorkout.day.req === "" && todayWorkout.day.opt === "REST";
 
@@ -728,13 +779,38 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
 function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogForDay, currentWeekNum, diffDays, onEditDay, isArchive = false, user, db, appId, profile }) {
   const [expandedWeek, setExpandedWeek] = useState(currentWeekNum > 0 && currentWeekNum <= 15 ? currentWeekNum : 1);
   const [isEditMode, setIsEditMode] = useState(false);
-  const getStageColor = (stage) => { if (!stage) return 'bg-pink-500/5 border-white/5'; if (stage.includes('peak')) return 'bg-blue-500/10 border-blue-500/40'; if (stage.includes('step back')) return 'bg-amber-500/10 border-amber-500/40'; if (stage.includes('taper')) return 'bg-purple-500/10 border-purple-500/40'; return 'bg-pink-500/10 border-pink-500/30'; };
-  const getStageTextColor = (stage) => { if (!stage) return 'text-pink-400'; if (stage.includes('peak')) return 'text-blue-400'; if (stage.includes('step back')) return 'text-amber-400'; if (stage.includes('taper')) return 'text-purple-400'; return 'text-pink-400'; };
-  const toggleQuickLog = async (e, day, week) => { e.stopPropagation(); if (!user || !db || !appId) return; const existingLog = logs.find(l => l.dayId === day.id); const isAutoCompleted = (week.week <= 6); if (existingLog) { if (existingLog.isSkipped) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() }); } else { const isQuickLog = existingLog.isQuickLog === true || (existingLog.distance === 0 && existingLog.duration === 0 && (!existingLog.notes || existingLog.notes === 'Quick logged') && (!existingLog.vibe || existingLog.vibe === '✅' || existingLog.vibe === '😎' || existingLog.vibe === '')); if (!isQuickLog) { openLogModal(day, week); return; } if (isAutoCompleted) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString() }); } else { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); } } } else { if (isAutoCompleted) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString() }); } else { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() }); } } };
+
+  const getStageColor = (stage) => { if (!stage) return 'bg-pink-500/5 border-white/5';
+    if (stage.includes('peak')) return 'bg-blue-500/10 border-blue-500/40'; if (stage.includes('step back')) return 'bg-amber-500/10 border-amber-500/40'; if (stage.includes('taper')) return 'bg-purple-500/10 border-purple-500/40'; return 'bg-pink-500/10 border-pink-500/30'; };
+  const getStageTextColor = (stage) => { if (!stage) return 'text-pink-400'; if (stage.includes('peak')) return 'text-blue-400'; if (stage.includes('step back')) return 'text-amber-400';
+    if (stage.includes('taper')) return 'text-purple-400'; return 'text-pink-400'; };
+
+  const toggleQuickLog = async (e, day, week) => { e.stopPropagation();
+    if (!user || !db || !appId) return; const existingLog = logs.find(l => l.dayId === day.id);
+    const isAutoCompleted = (week.week <= 6); if (existingLog) { if (existingLog.isSkipped) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() });
+      } else { const isQuickLog = existingLog.isQuickLog === true ||
+        (existingLog.distance === 0 && existingLog.duration === 0 && (!existingLog.notes || existingLog.notes === 'Quick logged') && (!existingLog.vibe || existingLog.vibe === '✅' || existingLog.vibe === '😎' || existingLog.vibe === ''));
+        if (!isQuickLog) { openLogModal(day, week); return; } if (isAutoCompleted) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString() });
+          } else { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id));
+        } } } else { if (isAutoCompleted) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, isSkipped: true, updatedAt: new Date().toISOString() });
+      } else { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: week.week, distance: 0, duration: 0, elevation: 0, effort: 0, notes: '', vibe: '', isQuickLog: true, isSkipped: false, actualDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() });
+    } } };
+
   const dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500"><div className="flex items-center justify-between"><h2 className="text-2xl font-black tracking-tight">{isArchive ? "Training Archive" : "Training Log"}</h2><button onClick={() => setIsEditMode(!isEditMode)} className={`flex items-center px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${isEditMode ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:text-white'}`}>{isEditMode ? <><Unlock className="w-3.5 h-3.5 mr-2" /> Editing Mode</> : <><Lock className="w-3.5 h-3.5 mr-2" /> Modify Plan</>}</button></div><div className="space-y-8"><div className="bg-neutral-900 rounded-3xl border border-neutral-800 p-6 shadow-2xl relative overflow-hidden"><h3 className="text-xs font-black text-neutral-500 uppercase tracking-[0.2em] mb-6 flex items-center"><Activity className="w-4 h-4 mr-2 text-teal-400" /> Training Density</h3><div className="overflow-x-auto pb-4 scrollbar-hide"><div className="flex gap-2.5 min-w-max items-start"><div className="flex flex-col gap-2 p-1.5 border border-transparent mr-1"><div className="text-[9px] font-black text-center mb-1 uppercase tracking-tighter invisible">W1</div>{['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (<div key={i} className="h-5 flex items-center justify-end text-[9px] font-black text-neutral-500 uppercase tracking-widest">{d}</div>))}</div>{trainingPlan.map((week, wIndex) => (<div key={week.week} className={`flex flex-col gap-2 p-1.5 rounded-xl border ${getStageColor(week.stage)}`}><div className={`text-[9px] font-black text-center mb-1 uppercase tracking-tighter ${getStageTextColor(week.stage)}`}>W{week.week}</div>{week.days.map((day, dIndex) => { const globalDayIndex = (wIndex * 7) + dIndex; const isRest = (day.req === "" && day.opt === "REST"); const activeLog = logs.find(l => l.dayId === day.id && !l.isSkipped); const isCompleted = completedLogIds.includes(day.id); const isToday = globalDayIndex === diffDays; const isEndure24 = wIndex === 14 && dIndex === 6; let cellClass = "w-5 h-5 rounded-md transition-all flex items-center justify-center cursor-pointer border-2 "; if (isEndure24) cellClass += "bg-orange-500 border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.8)] z-10 animate-pulse"; else if (activeLog) { const isQuickLog = activeLog?.isQuickLog === true || (activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === '')); if (isQuickLog) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.5)] scale-105 z-10"; else cellClass += "bg-pink-500 border-pink-400 shadow-[0_0_12px_rgba(236,72,153,0.5)] scale-105 z-10 text-white"; } else if (isRest) cellClass += "bg-black border-neutral-600 opacity-80 cursor-default"; else if (isToday) cellClass += "bg-neutral-800 border-pink-500 animate-pulse ring-2 ring-pink-500/30 z-10"; else if (isCompleted) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.3)]"; else cellClass += "bg-neutral-600 border-neutral-400 opacity-70 hover:border-pink-500 hover:opacity-100"; return (<button key={day.id} onClick={() => !isRest && openLogModal(day, week)} className={cellClass} disabled={isRest} title={`${dayNames[dIndex]}`}>{isEndure24 && <Flame className={`w-3.5 h-3.5 ${activeLog ? 'text-white' : 'text-orange-900 drop-shadow-[0_0_5px_rgba(0,0,0,0.8)]'}`} />}</button>); })}</div>))}</div></div><div className="flex flex-wrap items-center gap-4 mt-6 text-[9px] font-black text-neutral-400 uppercase tracking-widest pt-5 border-t border-white/5"><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-black border-2 border-neutral-600 mr-2 opacity-80"></div> Rest</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-neutral-600 border-2 border-neutral-400 mr-2 opacity-70"></div> Future</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-teal-600 border-2 border-teal-400 mr-2"></div> Done</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-pink-500 border-2 border-pink-400 mr-2 shadow-[0_0_5px_rgba(236,72,153,0.5)]"></div> Logged</span><span className="ml-auto flex flex-wrap gap-3"><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-pink-500 mr-1.5"></div> Build</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-amber-500 mr-1.5"></div> Step Back</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-blue-500 mr-1.5"></div> Peak</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-purple-500 mr-1.5"></div> Taper</span></span></div></div>{trainingPlan.map((week, wIndex) => (
-          <div key={week.week} className="bg-neutral-900 rounded-3xl border border-neutral-800 overflow-hidden transition-all shadow-md">
+    <div className="space-y-6 animate-in fade-in duration-500"><div className="flex items-center justify-between"><h2 className="text-2xl font-black tracking-tight">{isArchive ? "Training Archive" : "Training Log"}</h2><button onClick={() => setIsEditMode(!isEditMode)} className={`flex items-center px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${isEditMode ? 'bg-pink-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:text-white'}`}>{isEditMode ? <><Unlock className="w-3.5 h-3.5 mr-2" /> Editing Mode</> : <><Lock className="w-3.5 h-3.5 mr-2" /> Modify Plan</>}</button></div><div className="space-y-8"><div className="bg-neutral-900 rounded-3xl border border-neutral-800 p-6 shadow-2xl relative overflow-hidden"><h3 className="text-xs font-black text-neutral-500 uppercase tracking-[0.2em] mb-6 flex items-center"><Activity className="w-4 h-4 mr-2 text-teal-400" /> Training Density</h3><div className="overflow-x-auto pb-4 scrollbar-hide"><div className="flex gap-2.5 min-w-max items-start"><div className="flex flex-col gap-2 p-1.5 border border-transparent mr-1"><div className="text-[9px] font-black text-center mb-1 uppercase tracking-tighter invisible">W1</div>{['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].map((d, i) => (<div key={i} className="h-5 flex items-center justify-end text-[9px] font-black text-neutral-500 uppercase tracking-widest">{d}</div>))}</div>{trainingPlan.map((week, wIndex) => (<div key={week.week} className={`flex flex-col gap-2 p-1.5 rounded-xl border ${getStageColor(week.stage)}`}><div className={`text-[9px] font-black text-center mb-1 uppercase tracking-tighter ${getStageTextColor(week.stage)}`}>W{week.week}</div>{week.days.map((day, dIndex) => { const globalDayIndex = (wIndex * 7) + dIndex;
+      const isRest = (day.req === "" && day.opt === "REST"); const activeLog = logs.find(l => l.dayId === day.id && !l.isSkipped);
+      const isCompleted = completedLogIds.includes(day.id); const isToday = globalDayIndex === diffDays; const isEndure24 = wIndex === 14 && dIndex === 6;
+      let cellClass = "w-5 h-5 rounded-md transition-all flex items-center justify-center cursor-pointer border-2 ";
+      if (isEndure24) cellClass += "bg-orange-500 border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.8)] z-10 animate-pulse"; else if (activeLog) { const isQuickLog = activeLog?.isQuickLog === true ||
+      (activeLog.distance === 0 && activeLog.duration === 0 && (!activeLog.notes || activeLog.notes === 'Quick logged') && (!activeLog.vibe || activeLog.vibe === '✅' || activeLog.vibe === '😎' || activeLog.vibe === ''));
+      if (isQuickLog) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.5)] scale-105 z-10"; else cellClass += "bg-pink-500 border-pink-400 shadow-[0_0_12px_rgba(236,72,153,0.5)] scale-105 z-10 text-white";
+      } else if (isRest) cellClass += "bg-black border-neutral-600 opacity-80 cursor-default";
+      else if (isToday) cellClass += "bg-neutral-800 border-pink-500 animate-pulse ring-2 ring-pink-500/30 z-10"; else if (isCompleted) cellClass += "bg-teal-600 border-teal-400 shadow-[0_0_8px_rgba(20,184,166,0.3)]";
+      else cellClass += "bg-neutral-600 border-neutral-400 opacity-70 hover:border-pink-500 hover:opacity-100"; return (<button key={day.id} onClick={() => !isRest && openLogModal(day, week)} className={cellClass} disabled={isRest} title={`${dayNames[dIndex]}`}>{isEndure24 && <Flame className={`w-3.5 h-3.5 ${activeLog ? 'text-white' : 'text-orange-900 drop-shadow-[0_0_5px_rgba(0,0,0,0.8)]'}`} />}</button>);
+      })}</div>))}</div></div><div className="flex flex-wrap items-center gap-4 mt-6 text-[9px] font-black text-neutral-400 uppercase tracking-widest pt-5 border-t border-white/5"><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-black border-2 border-neutral-600 mr-2 opacity-80"></div> Rest</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-neutral-600 border-2 border-neutral-400 mr-2 opacity-70"></div> Future</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-teal-600 border-2 border-teal-400 mr-2"></div> Done</span><span className="flex items-center"><div className="w-3 h-3 rounded-sm bg-pink-500 border-2 border-pink-400 mr-2 shadow-[0_0_5px_rgba(236,72,153,0.5)]"></div> Logged</span><span className="ml-auto flex flex-wrap gap-3"><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-pink-500 mr-1.5"></div> Build</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-amber-500 mr-1.5"></div> Step Back</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-blue-500 mr-1.5"></div> Peak</span><span className="flex items-center"><div className="w-2 h-2 rounded-full bg-purple-500 mr-1.5"></div> Taper</span></span></div></div>{trainingPlan.map((week, wIndex) => (
+      <div key={week.week} className="bg-neutral-900 rounded-3xl border border-neutral-800 overflow-hidden transition-all shadow-md">
             <button onClick={() => setExpandedWeek(expandedWeek === week.week ? null : week.week)} className={`w-full flex items-center justify-between p-6 bg-neutral-900 hover:bg-neutral-800/50 transition-colors text-left border-l-8 ${getStageTextColor(week.stage).replace('text', 'border')}`}><div><div className="flex items-center space-x-3"><h3 className="text-lg font-black text-white italic">Week {week.week}</h3><span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-neutral-950 border border-white/5 ${getStageTextColor(week.stage)}`}>{String(week.stage)}</span></div><p className="text-xs text-neutral-500 font-bold tracking-wide mt-1.5">Begins {week.dateStr}</p></div><ChevronRight className={`transform transition-transform ${expandedWeek === week.week ? 'rotate-90 text-pink-500' : 'text-neutral-500'}`} /></button>
             {expandedWeek === week.week && (
               <div className="divide-y divide-neutral-800/50 border-t border-neutral-800 bg-neutral-950/30">
@@ -748,7 +824,7 @@ function PlanView({ logs, trainingPlan, completedLogIds, openLogModal, getLogFor
                       <div className={`flex-shrink-0 flex flex-col items-center pt-1 w-12 ${!isRest ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`} onClick={(e) => !isRest && toggleQuickLog(e, day, week)} title={isRest ? "Rest Day" : "Tap to toggle mark as done"}><span className={`text-[10px] font-black uppercase tracking-[0.2em] mb-1 ${isRest ? 'text-neutral-600' : 'text-neutral-400'}`}>{dayNames[dIndex]}</span>{isCompleted ? <CheckCircle2 className="w-7 h-7 text-teal-400 drop-shadow-[0_0_8px_rgba(45,212,191,0.4)]" /> : isRest ? <div className="w-3 h-3 rounded-full bg-neutral-700 mt-2"></div> : <div className="w-7 h-7 rounded-full border-2 border-neutral-500 hover:border-pink-500 transition-colors mt-1"></div>}</div>
                       <div className={`flex-1 flex flex-col gap-3 ${!isRest ? 'cursor-pointer' : ''}`} onClick={() => !isEditMode && !isRest && openLogModal(day, week)}>{isRest ? (<p className="text-base font-medium leading-relaxed text-neutral-500 italic uppercase font-black tracking-widest pt-1">REST</p>) : (<>{day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl shadow-inner flex flex-col items-start gap-2"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p></div>)}{day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p></div>)}</>)}{isCompleted && activeLog && !isQuickLog && (<div className="mt-2 p-4 bg-neutral-900/80 border border-teal-500/30 rounded-2xl shadow-lg"><div className="flex flex-wrap gap-y-2 items-center space-x-5 text-[11px] font-black uppercase tracking-widest text-teal-400">{activeLog.distance > 0 && <span>{displayDist(activeLog.distance, profile?.unitPref).toFixed(1)} {profile?.unitPref || 'mi'}</span>}{activeLog.duration > 0 && <span>{activeLog.duration} min</span>}{activeLog.vibe && <span className="text-lg">{String(activeLog.vibe)}</span>}</div></div>)}</div>{isEditMode && (<button onClick={() => onEditDay(day, wIndex)} className="p-3 bg-neutral-800 hover:bg-pink-600 rounded-xl text-white self-center transition-all shadow-lg"><Edit3 className="w-4 h-4" /></button>)}
                     </div>
-                  ); 
+                  );
                 })}
               </div>
             )}
@@ -764,19 +840,26 @@ function EditPlanModal({ day, onClose, onSave }) {
   const [optText, setOptText] = useState(String(day.opt || ''));
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayString = dayNames[day.id.split('-')[1] === 'mon' ? 0 : day.id.split('-')[1] === 'tue' ? 1 : day.id.split('-')[1] === 'wed' ? 2 : day.id.split('-')[1] === 'thu' ? 3 : day.id.split('-')[1] === 'fri' ? 4 : day.id.split('-')[1] === 'sat' ? 5 : 6];
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300"><div className="bg-neutral-900 border border-pink-500/30 rounded-[2rem] p-8 max-w-md w-full shadow-2xl"><h2 className="text-2xl font-black text-white mb-2 flex items-center italic"><Edit3 className="w-6 h-6 mr-3 text-pink-500" /> Edit Workout</h2><p className="text-[10px] text-pink-500 uppercase font-black tracking-[0.2em] mb-6">{dayString} • Week {Number(day.weekIndex) + 1}</p><div className="space-y-4 mb-8"><div><label className="text-[10px] font-black text-blue-400 uppercase block mb-2 tracking-widest">Required (Blue Box)</label><textarea value={reqText} onChange={(e) => setReqText(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-blue-100 focus:outline-none focus:border-blue-500 h-24 resize-none font-medium" placeholder="Leave empty if none..." /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Optional (White Box)</label><textarea value={optText} onChange={(e) => setOptText(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-neutral-500 h-24 resize-none font-medium" placeholder="Leave empty if none (or type REST)..." /></div></div><div className="flex space-x-4"><button onClick={onClose} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white font-black py-4 rounded-xl transition-all text-xs uppercase tracking-widest shadow-lg">Cancel</button><button onClick={() => onSave(day.weekIndex, day.id, reqText, optText)} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black py-4 rounded-xl transition-all flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)] text-xs uppercase tracking-widest"><Save className="w-4 h-4 mr-2" /> Save</button></div></div></div>
   );
 }
 
-function StatCard({ icon, label, val, unit, color }) { return (<div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl h-full"><div className={`${color} mb-2`}>{React.cloneElement(icon, { className: "w-6 h-6" })}</div><div><div className="text-2xl font-black text-white leading-none">{String(val)}</div><div className="text-[9px] text-neutral-500 font-black uppercase tracking-widest leading-tight mt-2">{String(label)} <br/> {unit && <span className="opacity-40 italic lowercase">({unit})</span>}</div></div></div>); }
+function StatCard({ icon, label, val, unit, color }) { return (<div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl h-full"><div className={`${color} mb-2`}>{React.cloneElement(icon, { className: "w-6 h-6" })}</div><div><div className="text-2xl font-black text-white leading-none">{String(val)}</div><div className="text-[9px] text-neutral-500 font-black uppercase tracking-widest leading-tight mt-2">{String(label)} <br/> {unit && <span className="opacity-40 italic lowercase">({unit})</span>}</div></div></div>);
+}
 
 function StatsView({ logs, trainingPlan, profile }) {
   const activeLogs = useMemo(() => logs.filter(l => !l.isSkipped), [logs]);
   const stats = useMemo(() => { const s = { miles: 0, time: 0, elev: 0 }; activeLogs.forEach(l => { s.miles += Number(l.distance)||0; s.time += Number(l.duration)||0; s.elev += Number(l.elevation)||0; }); return s; }, [activeLogs]);
-  const paceStats = useMemo(() => { const pStats = { 'recovery': { dist: 0, dur: 0, label: 'Easy / Recovery', icon: <Wind className="w-5 h-5" />, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' }, 'interval': { dist: 0, dur: 0, label: 'Speed / Intervals', icon: <Zap className="w-5 h-5" />, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' }, 'hills': { dist: 0, dur: 0, label: 'Hill Repeats', icon: <Mountain className="w-5 h-5" />, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' }, 'run': { dist: 0, dur: 0, label: 'Long / Base Runs', icon: <MapPin className="w-5 h-5" />, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20' }, }; activeLogs.forEach(log => { let dayType = 'run'; for (const w of trainingPlan) { const d = w.days.find(day => day.id === log.dayId); if (d && d.type) { dayType = d.type; break; } } if (pStats[dayType] && log.distance > 0 && log.duration > 0) { pStats[dayType].dist += Number(log.distance); pStats[dayType].dur += Number(log.duration); } else if (log.distance > 0 && log.duration > 0) { pStats['run'].dist += Number(log.distance); pStats['run'].dur += Number(log.duration); } }); return pStats; }, [activeLogs, trainingPlan]);
+  const paceStats = useMemo(() => { const pStats = { 'recovery': { dist: 0, dur: 0, label: 'Easy / Recovery', icon: <Wind className="w-5 h-5" />, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' }, 'interval': { dist: 0, dur: 0, label: 'Speed / Intervals', icon: <Zap className="w-5 h-5" />, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' }, 'hills': { dist: 0, dur: 0, label: 'Hill Repeats', icon: <Mountain className="w-5 h-5" />, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' }, 'run': { dist: 0, dur: 0, label: 'Long / Base Runs', icon: <MapPin className="w-5 h-5" />, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20' }, }; activeLogs.forEach(log => { let dayType = 'run'; for (const w of trainingPlan) { const d = w.days.find(day => day.id === log.dayId); if (d && d.type) { dayType = d.type; break; } } if (pStats[dayType] && log.distance > 0 && log.duration > 0) { pStats[dayType].dist += Number(log.distance); pStats[dayType].dur += Number(log.duration);
+    } else if (log.distance > 0 && log.duration > 0) { pStats['run'].dist += Number(log.distance); pStats['run'].dur += Number(log.duration); } });
+    return pStats; }, [activeLogs, trainingPlan]);
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500"><h2 className="text-2xl font-black tracking-tight italic">Mission Stats</h2><div className="grid grid-cols-2 md:grid-cols-3 gap-4"><div className="bg-gradient-to-br from-pink-900/40 to-neutral-900 border border-pink-500/20 rounded-[2rem] p-6 shadow-2xl"><Activity className="text-pink-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{displayDist(stats.miles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-pink-200 uppercase font-black tracking-widest mt-3">Total Distance ({profile?.unitPref || 'mi'})</div></div><div className="bg-gradient-to-br from-teal-900/30 to-neutral-900 border border-teal-500/20 rounded-[2rem] p-6 shadow-2xl"><Watch className="text-teal-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{Math.floor(stats.time/60)}<span className="text-xl ml-1">h</span></div><div className="text-[10px] text-teal-200 uppercase font-black tracking-widest mt-3">Time on Feet</div></div><div className="col-span-2 md:col-span-1 bg-gradient-to-br from-indigo-900/30 to-neutral-900 border border-indigo-500/20 rounded-[2rem] p-6 shadow-2xl"><Mountain className="text-indigo-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{stats.elev}</div><div className="text-[10px] text-indigo-200 uppercase font-black tracking-widest mt-3">Elevation (ft)</div></div></div><div className="bg-neutral-900 rounded-3xl border border-neutral-800 overflow-hidden shadow-2xl"><div className="p-6 border-b border-white/5 bg-neutral-950/30"><h3 className="text-xs font-black text-neutral-400 uppercase tracking-[0.2em] flex items-center"><Timer className="w-4 h-4 mr-2" /> Average Pace Breakdown</h3></div><div className="divide-y divide-neutral-800/50">{Object.entries(paceStats).map(([key, data]) => { const userDist = displayDist(data.dist, profile?.unitPref); const userPace = displayPace(data.dur / data.dist, profile?.unitPref); return (<div key={key} className="p-5 px-6 flex items-center justify-between hover:bg-neutral-800/20 transition-colors"><div className="flex items-center space-x-5"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${data.bg} ${data.color}`}>{data.icon}</div><div><div className="font-black text-white text-sm tracking-wide">{data.label}</div><div className="text-[10px] text-neutral-500 mt-1 uppercase font-bold tracking-widest">{userDist.toFixed(1)} {profile?.unitPref || 'mi'} tracked</div></div></div><div className="text-right"><div className="text-2xl font-black text-white tabular-nums tracking-tighter">{data.dist > 0 ? `${Math.floor(userPace)}:${Math.round((userPace%1)*60).toString().padStart(2,'0')}` : '--:--'} <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">/{profile?.unitPref || 'mi'}</span></div></div></div>); })}</div></div></div>
+    <div className="space-y-8 animate-in fade-in duration-500"><h2 className="text-2xl font-black tracking-tight italic">Mission Stats</h2><div className="grid grid-cols-2 md:grid-cols-3 gap-4"><div className="bg-gradient-to-br from-pink-900/40 to-neutral-900 border border-pink-500/20 rounded-[2rem] p-6 shadow-2xl"><Activity className="text-pink-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{displayDist(stats.miles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-pink-200 uppercase font-black tracking-widest mt-3">Total Distance ({profile?.unitPref || 'mi'})</div></div><div className="bg-gradient-to-br from-teal-900/30 to-neutral-900 border border-teal-500/20 rounded-[2rem] p-6 shadow-2xl"><Watch className="text-teal-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{Math.floor(stats.time/60)}<span className="text-xl ml-1">h</span></div><div className="text-[10px] text-teal-200 uppercase font-black tracking-widest mt-3">Time on Feet</div></div><div className="col-span-2 md:col-span-1 bg-gradient-to-br from-indigo-900/30 to-neutral-900 border border-indigo-500/20 rounded-[2rem] p-6 shadow-2xl"><Mountain className="text-indigo-400 mb-3 w-7 h-7" /><div className="text-4xl font-black text-white leading-none">{stats.elev}</div><div className="text-[10px] text-indigo-200 uppercase font-black tracking-widest mt-3">Elevation (ft)</div></div></div><div className="bg-neutral-900 rounded-3xl border border-neutral-800 overflow-hidden shadow-2xl"><div className="p-6 border-b border-white/5 bg-neutral-950/30"><h3 className="text-xs font-black text-neutral-400 uppercase tracking-[0.2em] flex items-center"><Timer className="w-4 h-4 mr-2" /> Average Pace Breakdown</h3></div><div className="divide-y divide-neutral-800/50">{Object.entries(paceStats).map(([key, data]) => { const userDist = displayDist(data.dist, profile?.unitPref);
+      const userPace = displayPace(data.dur / data.dist, profile?.unitPref); return (<div key={key} className="p-5 px-6 flex items-center justify-between hover:bg-neutral-800/20 transition-colors"><div className="flex items-center space-x-5"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${data.bg} ${data.color}`}>{data.icon}</div><div><div className="font-black text-white text-sm tracking-wide">{data.label}</div><div className="text-[10px] text-neutral-500 mt-1 uppercase font-bold tracking-widest">{userDist.toFixed(1)} {profile?.unitPref || 'mi'} tracked</div></div></div><div className="text-right"><div className="text-2xl font-black text-white tabular-nums tracking-tighter">{data.dist > 0 ? `${Math.floor(userPace)}:${Math.round((userPace%1)*60).toString().padStart(2,'0')}` : '--:--'} <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">/{profile?.unitPref || 'mi'}</span></div></div></div>);
+    })}</div></div></div>
   );
 }
 
@@ -789,8 +872,16 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
   const [actualDate, setActualDate] = useState(existingLog?.actualDate || new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const handleSave = async (e) => { e.preventDefault(); if (!user) return; setSaving(true); const distMiles = Number(distance) / (profile?.unitPref === 'km' ? MI_TO_KM : 1); try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: day.week, distance: distMiles, duration: Number(duration) || 0, effort: Number(effort) || 0, notes, vibe, actualDate, isQuickLog: false, isSkipped: false, updatedAt: new Date().toISOString() }); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
-  const handleDelete = async () => { if (!user) return; if (!deleteConfirm) { setDeleteConfirm(true); setTimeout(() => setDeleteConfirm(false), 3000); return; } setSaving(true); try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
+
+  const handleSave = async (e) => { e.preventDefault();
+    if (!user) return; setSaving(true); const distMiles = Number(distance) / (profile?.unitPref === 'km' ? MI_TO_KM : 1);
+    try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id), { dayId: day.id, weekId: day.week, distance: distMiles, duration: Number(duration) || 0, effort: Number(effort) || 0, notes, vibe, actualDate, isQuickLog: false, isSkipped: false, updatedAt: new Date().toISOString() });
+    onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
+
+  const handleDelete = async () => { if (!user) return; if (!deleteConfirm) { setDeleteConfirm(true); setTimeout(() => setDeleteConfirm(false), 3000); return;
+    } setSaving(true); try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err);
+    } finally { setSaving(false); } };
+
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayString = dayNames[day.id.split('-')[1] === 'mon' ? 0 : day.id.split('-')[1] === 'tue' ? 1 : day.id.split('-')[1] === 'wed' ? 2 : day.id.split('-')[1] === 'thu' ? 3 : day.id.split('-')[1] === 'fri' ? 4 : day.id.split('-')[1] === 'sat' ? 5 : 6];
 
@@ -808,7 +899,10 @@ function ProfileSetupModal({ user, db, appId, existingProfile, onClose, onResetP
   const [resetConfirm, setResetConfirm] = useState(false);
   const [isGhost, setIsGhost] = useState(existingProfile?.role === 'admin' || user?.isAnonymous);
 
-  const handleSave = async (e) => { e.preventDefault(); if (!name.trim()) return; setSaving(true); try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { displayName: name, avatarEmoji, avatarBg, unitPref, role: isGhost ? 'admin' : 'member', createdAt: existingProfile ? existingProfile.createdAt : new Date().toISOString() }, { merge: true }); onClose(); } catch(err) { console.error(err); } finally { setSaving(false); } };
+  const handleSave = async (e) => { e.preventDefault(); if (!name.trim()) return;
+    setSaving(true); try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { displayName: name, avatarEmoji, avatarBg, unitPref, role: isGhost ? 'admin' : 'member', createdAt: existingProfile ? existingProfile.createdAt : new Date().toISOString() }, { merge: true });
+    onClose(); } catch(err) { console.error(err); } finally { setSaving(false); } };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-in fade-in duration-300"><div className="bg-neutral-900 border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative max-h-[95vh] overflow-y-auto">{(existingProfile || isGhost) && (<button onClick={onClose} className="absolute top-6 right-6 p-3 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button>)}<div className="text-center mb-10 relative z-10"><div className={`w-24 h-24 rounded-full bg-gradient-to-br ${String(avatarBg)} flex items-center justify-center text-5xl shadow-2xl mx-auto mb-6 border-4 border-white/10 relative`}>{String(avatarEmoji)}{isGhost && <div className="absolute -bottom-1 -right-1 bg-indigo-600 p-1.5 rounded-full border-4 border-neutral-900"><ShieldCheck className="w-4 h-4 text-white" /></div>}</div><h2 className="text-2xl font-black text-white italic tracking-tight">{existingProfile ? 'Edit Profile' : 'Welcome, Sister.'}</h2>{isGhost && <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest mt-2">Active Ghost Protocol</p>}</div><form onSubmit={handleSave} className="space-y-8 text-left relative z-10"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Runner Identity</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-5 text-white font-black focus:outline-none focus:border-pink-500 shadow-inner" placeholder="e.g. Speedy Sarah" required /></div>
           {isGhost && (<div className="flex items-center justify-between p-4 bg-neutral-950 rounded-2xl border border-white/5"><div className="flex items-center space-x-3 text-neutral-400"><Ghost className={`w-5 h-5 ${isGhost ? 'text-indigo-400' : 'text-neutral-600'}`} /><div><p className="text-[10px] font-black uppercase tracking-widest">Ghost Mode</p><p className="text-[8px] font-bold text-neutral-600 uppercase">Hide me from team list</p></div></div><button type="button" onClick={() => setIsGhost(!isGhost)} className={`w-12 h-6 rounded-full transition-colors relative ${isGhost ? 'bg-indigo-600' : 'bg-neutral-800'}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isGhost ? 'left-7' : 'left-1'}`} /></button></div>)}
@@ -816,5 +910,7 @@ function ProfileSetupModal({ user, db, appId, existingProfile, onClose, onResetP
   );
 }
 
-function NavButton({ icon, label, isActive, onClick }) { return (<button onClick={onClick} className={`flex items-center space-x-2 text-[10px] font-black uppercase tracking-[0.2em] transition-colors ${isActive ? 'text-pink-500' : 'text-neutral-500 hover:text-neutral-300'}`}>{React.cloneElement(icon, { className: "w-4.5 h-4.5" })}<span>{String(label)}</span></button>); }
-function MobileNavButton({ icon, label, isActive, onClick }) { return (<button onClick={onClick} className={`flex flex-col items-center justify-center w-16 h-12 transition-all ${isActive ? 'text-pink-500 scale-110' : 'text-neutral-500'}`}>{React.cloneElement(icon, { className: `w-5.5 h-5.5 mb-1 ${isActive ? 'drop-shadow-[0_0_10px_rgba(236,72,153,0.6)]' : ''}` })}<span className="text-[8px] font-black uppercase tracking-[0.2em]">{String(label)}</span></button>); }
+function NavButton({ icon, label, isActive, onClick }) { return (<button onClick={onClick} className={`flex items-center space-x-2 text-[10px] font-black uppercase tracking-[0.2em] transition-colors ${isActive ? 'text-pink-500' : 'text-neutral-500 hover:text-neutral-300'}`}>{React.cloneElement(icon, { className: "w-4.5 h-4.5" })}<span>{String(label)}</span></button>);
+}
+function MobileNavButton({ icon, label, isActive, onClick }) { return (<button onClick={onClick} className={`flex flex-col items-center justify-center w-16 h-12 transition-all ${isActive ? 'text-pink-500 scale-110' : 'text-neutral-500'}`}>{React.cloneElement(icon, { className: `w-5.5 h-5.5 mb-1 ${isActive ? 'drop-shadow-[0_0_10px_rgba(236,72,153,0.6)]' : ''}` })}<span className="text-[8px] font-black uppercase tracking-[0.2em]">{String(label)}</span></button>);
+}
