@@ -389,7 +389,7 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
 });
 
     const unsubMeta = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
-      if (s.exists()) setRaceMeta({ totalLaps: 25, ...s.data() });
+      if (s.exists()) setRaceMeta(prev => ({ totalLaps: 25, ...prev, ...s.data() }));
     });
 
     const unsubPlan = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), async (s) => {
@@ -765,9 +765,9 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   const onDeckEstStart = estFinishMs;
 
   // ── Category position ─────────────────────────────────────
-  const catPos    = raceMeta?.categoryPos || '';
-  const catPosNum = catPos ? catPos.split('/')[0] : '';
-  const catPosOf  = catPos ? catPos.split('/')[1] : '';
+  const catPos    = raceMeta?.categoryPos ?? '';
+  const catPosNum = catPos.split('/')[0] || '';
+  const catPosOf  = catPos.split('/')[1] || '';
 
   const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) : '--:--';
   const fmtDur  = (ms) => {
@@ -815,7 +815,7 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
         </div>
 
         {/* Category position — loud and proud */}
-        {catPos && (
+        {raceMeta?.categoryPos && (
           <div className="relative z-10 flex items-center justify-center">
             <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-6 py-3 flex items-center gap-3 border border-white/20">
               <Trophy className="w-5 h-5 text-yellow-300" />
