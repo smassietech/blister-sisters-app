@@ -492,7 +492,7 @@ export default function App() {
         {view === 'dashboard' && (
           isRaceDay 
           ? <RaceDayDashboard raceMeta={raceMeta} laps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile || { avatarEmoji: '🏃‍♀️', avatarBg: 'from-pink-500 to-rose-600', unitPref: 'mi' }} /> 
-          : <DashboardView ... />
+          : <DashboardView logs={logs} openLogModal={openLogModal} todayWorkout={todayWorkout} totalMiles={totalMiles} completionPct={completionPct} profile={profile || {}} currentWeekNum={currentWeekNum} diffDays={diffDays} toggleStrava={toggleStrava} />
         )}
         {view === 'plan' && (
           isRaceDay 
