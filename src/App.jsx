@@ -405,17 +405,32 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
   }
 
   // De-duplicate laps for the UI in case the scraper creates parallel documents
-  const uniqueLaps = [];
-  const highestLap = allLaps.length > 0 ? Math.max(...allLaps.map(l => l.lapNumber)) : 0;
-  for (let i = 1; i <= highestLap; i++) {
-    const lapDocs = allLaps.filter(l => l.lapNumber === i);
-    if (lapDocs.length > 0) {
-      // Prefer the app's native document format (lap_X) over arbitrary scraper IDs
-      const mainLap = lapDocs.find(l => l.id === `lap_${i}`) || lapDocs[0];
-      uniqueLaps.push(mainLap);
+  // Merge multiple docs for same lapNumber — prefer 'complete' status, latest updatedAt
+  const lapsByNumber = {};
+  for (const lap of allLaps) {
+    const existing = lapsByNumber[lap.lapNumber];
+    if (!existing) {
+      lapsByNumber[lap.lapNumber] = { ...lap };
+    } else {
+      // Merge fields — newer/more authoritative data wins
+      const merged = { ...existing, ...lap };
+      // Status priority: complete > running > claimed > open
+      const statusRank = { complete: 4, running: 3, claimed: 2, open: 1 };
+      if ((statusRank[lap.status] || 0) > (statusRank[existing.status] || 0)) {
+        merged.status = lap.status;
+      } else {
+        merged.status = existing.status;
+      }
+      // Preserve durationMs/endTime/rawTime from whichever has it
+      merged.durationMs = lap.durationMs || existing.durationMs;
+      merged.endTime    = lap.endTime    || existing.endTime;
+      merged.rawTime    = lap.rawTime    || existing.rawTime;
+      // Preserve runnerId from manual claim (scraper doesn't write runnerId)
+      merged.runnerId   = existing.runnerId || lap.runnerId;
+      lapsByNumber[lap.lapNumber] = merged;
     }
   }
-
+  const uniqueLaps = Object.values(lapsByNumber).sort((a, b) => a.lapNumber - b.lapNumber);
   setRelayLaps(uniqueLaps);
 });
 
