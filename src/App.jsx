@@ -359,9 +359,34 @@ export default function App() {
       }
     });
 
-    const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'laps'), (s) => {
-      setRelayLaps(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.lapNumber - b.lapNumber));
-    });
+const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'laps'), async (s) => {
+  const allLaps = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.lapNumber - b.lapNumber);
+
+  // ── Auto-sync statuses based on scraper data ──────────────
+  // Find highest completed lap number from resultsbase
+  const scrapedCompleted = allLaps
+    .filter(l => l.source === 'resultsbase' && l.status === 'complete')
+    .map(l => l.lapNumber);
+  const maxCompleted = scrapedCompleted.length > 0 ? Math.max(...scrapedCompleted) : 0;
+
+  if (maxCompleted > 0) {
+    const updates = [];
+    for (const lap of allLaps) {
+      const lapRef = doc(db, 'artifacts', appId, 'public', 'data', 'laps', lap.id);
+      // Lap is confirmed complete by scraper — ensure status is correct
+      if (lap.lapNumber <= maxCompleted && lap.status !== 'complete' && lap.source === 'resultsbase') {
+        updates.push(setDoc(lapRef, { status: 'complete' }, { merge: true }));
+      }
+      // Lap immediately after max completed should be 'running'
+      if (lap.lapNumber === maxCompleted + 1 && lap.status === 'claimed') {
+        updates.push(setDoc(lapRef, { status: 'running', startTime: lap.startTime || Date.now() }, { merge: true }));
+      }
+    }
+    if (updates.length > 0) await Promise.all(updates);
+  }
+
+  setRelayLaps(allLaps);
+});
 
     const unsubMeta = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
       if (s.exists()) setRaceMeta({ totalLaps: 25, ...s.data() });
@@ -690,19 +715,275 @@ function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
 
 function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   const [elapsed, setElapsed] = useState('');
-  useEffect(() => { const timer = setInterval(() => { const diff = Date.now() - (raceMeta.startTime || Date.now()); if (diff < 0) { setElapsed('Starting Soon...'); return; } const hours = Math.floor(diff / 3600000); const mins = Math.floor((diff % 3600000) / 60000); const secs = Math.floor((diff % 60000) / 1000); setElapsed(`${hours}h ${mins}m ${secs}s`); }, 1000); return () => clearInterval(timer); }, [raceMeta.startTime]);
-  const completedLaps = laps.filter(l => l.status === 'complete');
-  const runningLap = laps.find(l => l.status === 'running');
-  const nextLap = laps.find(l => l.status === 'claimed');
+  const [tick, setTick] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const diff = Date.now() - (raceMeta.startTime || Date.now());
+      if (diff < 0) { setElapsed('Starting Soon...'); return; }
+      const hours = Math.floor(diff / 3600000);
+      const mins  = Math.floor((diff % 3600000) / 60000);
+      const secs  = Math.floor((diff % 60000) / 1000);
+      setElapsed(`${hours}h ${mins}m ${secs}s`);
+      setTick(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [raceMeta.startTime]);
+
+  const unitPref = currentProfile?.unitPref || 'mi';
+
+  // ── Lap data ──────────────────────────────────────────────
+  const completedLaps = laps.filter(l => l.status === 'complete').sort((a,b) => a.lapNumber - b.lapNumber);
+  const runningLap    = laps.find(l => l.status === 'running');
+  const nextLap       = laps.find(l => l.status === 'claimed');
+
+  // ── Distance & pace from scraper durationMs ───────────────
   const totalMiles = completedLaps.length * LAP_DISTANCE;
-  const totalDurationMs = completedLaps.reduce((acc, lap) => acc + (lap.endTime - lap.startTime), 0);
-  const avgPace = totalMiles > 0 ? (totalDurationMs / 60000) / totalMiles : 0;
+
+  // Use durationMs from scraper where available, fall back to endTime-startTime
+  const lapDurations = completedLaps
+    .map(l => l.durationMs || (l.endTime && l.startTime ? l.endTime - l.startTime : null))
+    .filter(Boolean);
+
+  const totalDurationMs = lapDurations.reduce((a, b) => a + b, 0);
+  const avgLapMs        = lapDurations.length > 0 ? Math.round(totalDurationMs / lapDurations.length) : 0;
+  const avgPaceMinPerMile = totalMiles > 0 ? (totalDurationMs / 60000) / totalMiles : 0;
+
+  // ── Per-runner averages from raceMeta (written by scraper) ─
+  const runnerAvgs = raceMeta?.runnerAvgs || {};
+
+  // ── Running lap elapsed + est finish ──────────────────────
+  const runningElapsedMs = runningLap?.startTime ? tick - runningLap.startTime : null;
+  const runnerAvgMs = runningLap
+    ? (runnerAvgs[runningLap.runnerName]?.avgMs || avgLapMs || 44 * 60000)
+    : null;
+  const estFinishMs = runningLap?.startTime && runnerAvgMs
+    ? runningLap.startTime + runnerAvgMs
+    : null;
+
+  // ── On-deck estimated start = running lap est finish ──────
+  const onDeckEstStart = estFinishMs;
+
+  // ── Category position ─────────────────────────────────────
+  const catPos     = raceMeta?.categoryPos || '';
+  const catPosNum  = catPos ? catPos.split('/')[0] : '';
+  const catPosOf   = catPos ? catPos.split('/')[1] : '';
+
+  const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) : '--:--';
+  const fmtDur  = (ms) => {
+    if (!ms || ms <= 0) return '--:--';
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}m ${s}s`;
+  };
+  const fmtAvgLap = (ms) => {
+    if (!ms) return '--';
+    return `${Math.floor(ms/60000)}:${String(Math.floor((ms%60000)/1000)).padStart(2,'0')}`;
+  };
+  const fmtPace = (minPerMile) => {
+    if (!minPerMile) return '--:--';
+    const converted = displayPace(minPerMile, unitPref);
+    return `${Math.floor(converted)}:${Math.round((converted % 1) * 60).toString().padStart(2,'0')}`;
+  };
+
+  const lastScrape = raceMeta?.lastScrapeAt
+    ? new Date(raceMeta.lastScrapeAt).toLocaleTimeString([], { hour:'numeric', minute:'2-digit', second:'2-digit' })
+    : null;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="bg-gradient-to-br from-pink-600 to-rose-700 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden"><div className="relative z-10 flex justify-between items-center mb-6"><p className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-200">Race Time Elapsed</p>{currentProfile && (<div className={`w-12 h-12 rounded-full bg-gradient-to-br ${String(currentProfile.avatarBg)} flex items-center justify-center text-xl shadow-2xl border-2 border-white/20 shrink-0`}>{String(currentProfile.avatarEmoji)}</div>)}</div><div className="relative z-10"><h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter tabular-nums">{elapsed}</h2></div></div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="bg-neutral-900 border border-pink-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden"><h3 className="text-xs font-black uppercase tracking-widest text-pink-500 mb-4 flex items-center"><span className="w-2 h-2 rounded-full bg-pink-500 animate-ping mr-2"></span> On Course</h3>{runningLap ? <div className="flex items-center space-x-4 relative z-10"><div className="text-2xl">🏃‍♀️</div><div><p className="text-xl font-black text-white">{String(runningLap.runnerName)}</p><p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Lap {String(runningLap.lapNumber)}</p></div></div> : <p className="text-neutral-500 italic text-sm">Nobody out right now.</p>}</div><div className="bg-neutral-900 border border-teal-500/30 rounded-3xl p-6 shadow-xl"><h3 className="text-xs font-black uppercase tracking-widest text-teal-400 mb-4">On Deck</h3>{nextLap ? <div className="flex items-center space-x-4 relative z-10"><div className="text-2xl">🔥</div><div><p className="text-xl font-black text-white">{String(nextLap.runnerName)}</p><p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Ready for Lap {String(nextLap.lapNumber)}</p></div></div> : <p className="text-neutral-500 italic text-sm">Next slot open!</p>}</div></div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><StatCard icon={<Activity />} label="Team Distance" val={displayDist(totalMiles, currentProfile?.unitPref).toFixed(1)} unit={currentProfile?.unitPref || 'mi'} color="text-pink-500" /><StatCard icon={<Timer />} label="Avg Pace" val={avgPace > 0 ? `${Math.floor(displayPace(avgPace, currentProfile?.unitPref))}:${Math.round((displayPace(avgPace, currentProfile?.unitPref)%1)*60).toString().padStart(2,'0')}` : '--'} unit={`/${currentProfile?.unitPref || 'mi'}`} color="text-teal-400" /><StatCard icon={<Gauge />} label="Laps Done" val={completedLaps.length} unit="laps" color="text-purple-500" /><StatCard icon={<Target />} label="Remaining" val={displayDist(Math.max(0, raceMeta.goalMiles - totalMiles), currentProfile?.unitPref).toFixed(1)} unit={currentProfile?.unitPref || 'mi'} color="text-indigo-400" /></div>
+
+      {/* ── RACE TIMER HEADER with position ── */}
+      <div className="bg-gradient-to-br from-pink-600 to-rose-700 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+        <div className="relative z-10 flex justify-between items-start mb-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-200">Race Time Elapsed</p>
+            {lastScrape && <p className="text-[9px] text-pink-300/60 font-bold mt-0.5">Updated {lastScrape}</p>}
+          </div>
+          {currentProfile && (
+            <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${String(currentProfile.avatarBg)} flex items-center justify-center text-xl shadow-2xl border-2 border-white/20 shrink-0`}>
+              {String(currentProfile.avatarEmoji)}
+            </div>
+          )}
+        </div>
+
+        {/* Elapsed time */}
+        <div className="relative z-10 text-center mb-4">
+          <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter tabular-nums">{elapsed}</h2>
+        </div>
+
+        {/* Category position — loud and proud */}
+        {catPos && (
+          <div className="relative z-10 flex items-center justify-center">
+            <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-6 py-3 flex items-center gap-3 border border-white/20">
+              <Trophy className="w-5 h-5 text-yellow-300" />
+              <div className="text-center">
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Category Position</div>
+                <div className="text-white font-black leading-none mt-0.5">
+                  <span className="text-3xl">{catPosNum}</span>
+                  <span className="text-sm text-pink-200 ml-1">/ {catPosOf}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── ON COURSE + ON DECK ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* On Course */}
+        <div className="bg-neutral-900 border border-pink-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+          <h3 className="text-xs font-black uppercase tracking-widest text-pink-500 mb-4 flex items-center">
+            <span className="w-2 h-2 rounded-full bg-pink-500 animate-ping mr-2 shrink-0"></span>
+            On Course
+          </h3>
+          {runningLap ? (
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="text-3xl">🏃‍♀️</div>
+                <div>
+                  <p className="text-xl font-black text-white">{String(runningLap.runnerName)}</p>
+                  <p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Lap {String(runningLap.lapNumber)}</p>
+                </div>
+              </div>
+              {/* Elapsed time for this runner */}
+              {runningElapsedMs !== null && (
+                <div className="bg-neutral-950/60 rounded-2xl p-4 mb-3 border border-neutral-800">
+                  <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-black mb-1">Elapsed</div>
+                  <div className="text-2xl font-black tabular-nums" style={{ color: '#00d4ff', textShadow: '0 0 16px rgba(0,212,255,0.4)' }}>
+                    {fmtDur(runningElapsedMs)}
+                  </div>
+                  {estFinishMs && (
+                    <div className="flex justify-between mt-2 text-xs">
+                      <span className="text-neutral-500">Est. finish</span>
+                      <span className="font-bold text-neutral-200">{fmtTime(estFinishMs)}</span>
+                    </div>
+                  )}
+                  {runnerAvgs[runningLap.runnerName] && (
+                    <div className="flex justify-between mt-1 text-xs">
+                      <span className="text-neutral-500">Personal avg</span>
+                      <span className="font-bold text-neutral-200">{fmtAvgLap(runnerAvgs[runningLap.runnerName].avgMs)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-neutral-500 italic text-sm">Nobody out right now.</p>
+          )}
+        </div>
+
+        {/* On Deck */}
+        <div className="bg-neutral-900 border border-teal-500/30 rounded-3xl p-6 shadow-xl">
+          <h3 className="text-xs font-black uppercase tracking-widest text-teal-400 mb-4">On Deck</h3>
+          {nextLap ? (
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="text-3xl">🔥</div>
+                <div>
+                  <p className="text-xl font-black text-white">{String(nextLap.runnerName)}</p>
+                  <p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Lap {String(nextLap.lapNumber)}</p>
+                </div>
+              </div>
+              {/* Est start based on running lap's est finish */}
+              <div className="bg-neutral-950/60 rounded-2xl p-4 border border-neutral-800">
+                <div className="flex justify-between text-xs mb-2">
+                  <span className="text-neutral-500">Est. start</span>
+                  <span className="font-bold" style={{ color: '#00e5a0' }}>
+                    {onDeckEstStart ? fmtTime(onDeckEstStart) : 'TBC'}
+                  </span>
+                </div>
+                {nextLap.runnerName && runnerAvgs[nextLap.runnerName] && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-neutral-500">Their avg lap</span>
+                    <span className="font-bold text-neutral-200">{fmtAvgLap(runnerAvgs[nextLap.runnerName].avgMs)}</span>
+                  </div>
+                )}
+                {onDeckEstStart && nextLap.runnerName && runnerAvgs[nextLap.runnerName] && (
+                  <div className="flex justify-between text-xs mt-2">
+                    <span className="text-neutral-500">Est. finish</span>
+                    <span className="font-bold text-neutral-200">
+                      {fmtTime(onDeckEstStart + runnerAvgs[nextLap.runnerName].avgMs)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-neutral-500 italic text-sm">Next slot open!</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── 4 STAT CARDS ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          icon={<Activity />}
+          label="Team Distance"
+          val={displayDist(totalMiles, unitPref).toFixed(1)}
+          unit={unitPref}
+          color="text-pink-500"
+        />
+        <StatCard
+          icon={<Timer />}
+          label={`Avg Pace /${unitPref}`}
+          val={avgPaceMinPerMile > 0 ? fmtPace(avgPaceMinPerMile) : '--'}
+          unit={`per ${unitPref}`}
+          color="text-teal-400"
+        />
+        <StatCard
+          icon={<Gauge />}
+          label="Avg Lap Time"
+          val={fmtAvgLap(avgLapMs)}
+          unit="per lap"
+          color="text-purple-500"
+        />
+        <StatCard
+          icon={<Target />}
+          label="Laps Done"
+          val={completedLaps.length}
+          unit="laps"
+          color="text-indigo-400"
+        />
+      </div>
+
+      {/* ── COMPLETED LAP FEED ── */}
+      {completedLaps.length > 0 && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-xl">
+          <div className="px-6 py-4 border-b border-neutral-800 flex justify-between items-center">
+            <h3 className="text-xs font-black uppercase tracking-widest text-neutral-400 flex items-center">
+              <History className="w-4 h-4 mr-2 text-teal-400" /> Completed Laps
+            </h3>
+            <span className="text-[9px] text-neutral-600 font-black uppercase tracking-widest">live · resultsbase</span>
+          </div>
+          <div className="divide-y divide-neutral-800/50">
+            {[...completedLaps].reverse().map(lap => {
+              const dur = lap.durationMs || (lap.endTime && lap.startTime ? lap.endTime - lap.startTime : null);
+              const runnerAvg = runnerAvgs[lap.runnerName]?.avgMs;
+              const isFast = runnerAvg && dur && dur < runnerAvg;
+              return (
+                <div key={lap.lapNumber} className="flex items-center justify-between px-6 py-3 hover:bg-neutral-800/20 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-neutral-950 rounded-lg flex items-center justify-center border border-neutral-800 shrink-0">
+                      <span className="text-[10px] font-black text-neutral-400">L{lap.lapNumber}</span>
+                    </div>
+                    <span className="font-bold text-white text-sm">{lap.runnerName}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`font-black tabular-nums text-sm ${isFast ? 'text-teal-400' : 'text-neutral-200'}`}>
+                      {dur ? fmtAvgLap(dur) : lap.rawTime || '--'}
+                    </span>
+                    {isFast && <span className="text-[9px] text-teal-400 font-black uppercase tracking-widest">PB</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
