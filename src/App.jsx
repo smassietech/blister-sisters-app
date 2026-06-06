@@ -799,13 +799,18 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   const onDeckEstStart = estFinishMs;
 
   // ── Category & Gender position ────────────────────────────
-  const catPos    = raceMeta?.categoryPos ?? '';
-  const catPosNum = catPos.split('/')[0] || '';
-  const catPosOf  = catPos.split('/')[1] || '';
+  const getPosValue = (val) => {
+    if (val === null || val === undefined || val === '') return null;
+    return String(val).trim();
+  };
 
-  const genderPos    = raceMeta?.genderPos ?? '';
-  const genderPosNum = genderPos.split('/')[0] || '';
-  const genderPosOf  = genderPos.split('/')[1] || '';
+  const catPos    = getPosValue(raceMeta?.categoryPos ?? raceMeta?.CategoryPos);
+  const catPosNum = catPos ? catPos.split('/')[0] : '--';
+  const catPosOf  = catPos?.includes('/') ? catPos.split('/')[1] : '';
+
+  const genderPos    = getPosValue(raceMeta?.genderPos ?? raceMeta?.GenderPos);
+  const genderPosNum = genderPos ? genderPos.split('/')[0] : '--';
+  const genderPosOf  = genderPos?.includes('/') ? genderPos.split('/')[1] : '';
 
   const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) : '--:--';
   const fmtDur  = (ms) => {
@@ -853,34 +858,28 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
         </div>
 
         {/* Category & Gender positions — loud and proud */}
-        {(raceMeta?.categoryPos || raceMeta?.genderPos) && (
-          <div className="relative z-10 flex flex-wrap items-center justify-center gap-3">
-            {raceMeta?.categoryPos && (
-              <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3 flex items-center justify-center gap-3 border border-white/20 flex-1 min-w-[130px]">
-                <Trophy className="w-6 h-6 text-yellow-300 shrink-0" />
-                <div className="text-left">
-                  <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Category</div>
-                  <div className="text-white font-black leading-none mt-0.5">
-                    <span className="text-3xl">{catPosNum}</span>
-                    {catPosOf && <span className="text-sm text-pink-200 ml-1">/ {catPosOf}</span>}
-                  </div>
-                </div>
+        <div className="relative z-10 flex flex-wrap items-center justify-center gap-3">
+          <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3 flex items-center justify-center gap-3 border border-white/20 flex-1 min-w-[130px]">
+            <Trophy className="w-6 h-6 text-yellow-300 shrink-0" />
+            <div className="text-left">
+              <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Category</div>
+              <div className="text-white font-black leading-none mt-0.5">
+                <span className="text-3xl">{catPosNum}</span>
+                {catPosOf && <span className="text-sm text-pink-200 ml-1">/ {catPosOf}</span>}
               </div>
-            )}
-            {raceMeta?.genderPos && (
-              <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3 flex items-center justify-center gap-3 border border-white/20 flex-1 min-w-[130px]">
-                <Medal className="w-6 h-6 text-teal-300 shrink-0" />
-                <div className="text-left">
-                  <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Gender</div>
-                  <div className="text-white font-black leading-none mt-0.5">
-                    <span className="text-3xl">{genderPosNum}</span>
-                    {genderPosOf && <span className="text-sm text-pink-200 ml-1">/ {genderPosOf}</span>}
-                  </div>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
-        )}
+          <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3 flex items-center justify-center gap-3 border border-white/20 flex-1 min-w-[130px]">
+            <Medal className="w-6 h-6 text-teal-300 shrink-0" />
+            <div className="text-left">
+              <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Gender</div>
+              <div className="text-white font-black leading-none mt-0.5">
+                <span className="text-3xl">{genderPosNum}</span>
+                {genderPosOf && <span className="text-sm text-pink-200 ml-1">/ {genderPosOf}</span>}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── ON COURSE + ON DECK ── */}
