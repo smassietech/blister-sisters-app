@@ -22,7 +22,7 @@ import {
 // ==========================================
 // 🛠️ SETTINGS
 // ==========================================
-const DEBUG_FORCE_RACE_DAY = true; 
+const DEBUG_FORCE_RACE_DAY = true; // force redeploy
 const TEAM_INVITE_CODE = 'ENDURE24';
 const ADMIN_SECRET_KEY = 'SISTER_HQ_2026'; 
 
