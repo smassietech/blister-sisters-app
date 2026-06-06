@@ -253,7 +253,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [teamProfiles, setTeamProfiles] = useState([]);
   const [relayLaps, setRelayLaps] = useState([]);
-  const [raceMeta, setRaceMeta] = useState({ startTime: EVENT_DATE_DEFAULT.getTime(), goalMiles: 100, totalLaps: 25 });
+  const [raceMeta, setRaceMeta] = useState({ startTime: EVENT_DATE_DEFAULT.getTime(), goalMiles: 100, totalLaps: 25, categoryPos: '' });
   const [trainingPlan, setTrainingPlan] = useState(DEFAULT_TRAINING_PLAN);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('dashboard');
@@ -389,7 +389,7 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
 });
 
     const unsubMeta = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
-      if (s.exists()) setRaceMeta(prev => ({ totalLaps: 25, ...prev, ...s.data() }));
+      if (s.exists()) setRaceMeta({ totalLaps: 30, categoryPos: '', ...s.data() });
     });
 
     const unsubPlan = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), async (s) => {
