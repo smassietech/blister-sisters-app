@@ -22,7 +22,7 @@ import {
 // ==========================================
 // 🛠️ SETTINGS
 // ==========================================
-const DEBUG_FORCE_RACE_DAY = false; 
+const DEBUG_FORCE_RACE_DAY = true; 
 const TEAM_INVITE_CODE = 'ENDURE24';
 const ADMIN_SECRET_KEY = 'SISTER_HQ_2026'; 
 
@@ -41,7 +41,7 @@ const STRAVA_CLIENT_SECRET = '06e729f59a6a23d0fa778aab2f254e71c41a03f0';
 
 // --- DATE CONSTANTS ---
 const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); 
-const EVENT_DATE_DEFAULT = new Date('2026-06-06T12:00:00'); 
+const EVENT_DATE_DEFAULT = new Date('2026-06-06T00:00:00'); 
 
 // --- UTILITY FUNCTIONS ---
 function getCurrentTrainingDay() {
@@ -277,10 +277,11 @@ export default function App() {
   const isRaceDay = useMemo(() => {
     if (DEBUG_FORCE_RACE_DAY) return true;
     const now = new Date();
-    const raceStart = new Date(raceMeta.startTime);
-    const raceEnd = new Date(raceMeta.startTime + (48 * 3600000));
-    return now >= new Date(raceStart.getFullYear(), raceStart.getMonth(), raceStart.getDate()) && now < raceEnd;
-  }, [raceMeta.startTime]);
+    const raceStart = new Date(raceMeta?.startTime || EVENT_DATE_DEFAULT.getTime());
+    const raceDateOnly = new Date(raceStart.getFullYear(), raceStart.getMonth(), raceStart.getDate());
+    const raceEnd = new Date(raceDateOnly.getTime() + (48 * 3600000));
+    return now >= raceDateOnly && now < raceEnd;
+  }, [raceMeta]);
 
   useEffect(() => {
     let link = document.querySelector("link[rel~='icon']");
@@ -490,8 +491,8 @@ export default function App() {
       <main className="max-w-4xl mx-auto p-4 py-8">
         {view === 'dashboard' && (
           isRaceDay 
-          ? <RaceDayDashboard raceMeta={raceMeta} laps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile} /> 
-          : <DashboardView logs={logs} openLogModal={openLogModal} todayWorkout={todayWorkout} totalMiles={totalMiles} completionPct={completionPct} profile={profile || {}} currentWeekNum={currentWeekNum} diffDays={diffDays} toggleStrava={toggleStrava} />
+          ? <RaceDayDashboard raceMeta={raceMeta} laps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile || { avatarEmoji: '🏃‍♀️', avatarBg: 'from-pink-500 to-rose-600', unitPref: 'mi' }} /> 
+          : <DashboardView ... />
         )}
         {view === 'plan' && (
           isRaceDay 
