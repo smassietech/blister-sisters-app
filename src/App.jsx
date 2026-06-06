@@ -362,48 +362,45 @@ export default function App() {
 const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'laps'), async (s) => {
   const allLaps = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.lapNumber - b.lapNumber);
 
-  // ── Auto-sync statuses based on scraper data ──────────────
+  // ── Auto-sync from scraper data ──────────────────────────
   const scraperLaps = allLaps.filter(l => l.source === 'resultsbase');
-  const scrapedCompleted = scraperLaps
-    .filter(l => l.status === 'complete')
-    .map(l => l.lapNumber);
-  const maxCompleted = scrapedCompleted.length > 0 ? Math.max(...scrapedCompleted) : 0;
-
+  const completedNums = scraperLaps.filter(l => l.status === 'complete').map(l => l.lapNumber);
+  const maxCompleted = completedNums.length > 0 ? Math.max(...completedNums) : 0;
+  
   if (maxCompleted > 0) {
     const updates = [];
-    for (const lap of allLaps) {
-      const lapRef = doc(db, 'artifacts', appId, 'public', 'data', 'laps', lap.id);
-      const sLap = scraperLaps.find(l => l.lapNumber === lap.lapNumber);
-
-      let needsUpdate = false;
-      let updateData = {};
-
-      // 1. Lap is confirmed complete by scraper but app still shows open/claimed/running
-      // (This catches app-created laps that lack source: 'resultsbase')
-      if (lap.lapNumber <= maxCompleted && lap.status !== 'complete') {
-        needsUpdate = true;
-        updateData.status = 'complete';
-      }
-
-      // 2. Fix missing endTime for completed laps using durationMs from the scraper
-      const isCompleting = updateData.status === 'complete' || lap.status === 'complete';
-      if (isCompleting && !lap.endTime && lap.startTime) {
-        const durMs = lap.durationMs || (sLap ? sLap.durationMs : null);
-        if (durMs) {
-          needsUpdate = true;
-          updateData.endTime = lap.startTime + durMs;
-        }
-      }
-
-      if (needsUpdate) {
-        updates.push(setDoc(lapRef, updateData, { merge: true }));
-      }
-
-      // 3. Lap immediately after max completed should be 'running'
-      if (lap.lapNumber === maxCompleted + 1 && lap.status === 'claimed') {
-        updates.push(setDoc(lapRef, { status: 'running', startTime: lap.startTime || Date.now() }, { merge: true }));
+    // Build the chain: lap 1 starts at raceMeta.startTime, lap N starts at lap N-1's endTime
+    let chainTime = raceMeta?.startTime || Date.now();
+    
+    for (let n = 1; n <= maxCompleted; n++) {
+      const lap = allLaps.find(l => l.lapNumber === n);
+      if (!lap) continue;
+      const sLap = scraperLaps.find(l => l.lapNumber === n);
+      const durMs = lap.durationMs || sLap?.durationMs;
+      if (!durMs) { chainTime = lap.endTime || chainTime; continue; }
+      
+      const newStart = lap.startTime || chainTime;
+      const newEnd   = newStart + durMs;
+      chainTime = newEnd;
+      
+      const needs = {};
+      if (lap.status !== 'complete') needs.status = 'complete';
+      if (!lap.startTime) needs.startTime = newStart;
+      if (!lap.endTime)   needs.endTime   = newEnd;
+      if (Object.keys(needs).length > 0) {
+        updates.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'laps', lap.id), needs, { merge: true }));
       }
     }
+    
+    // Next lap after max completed: set to 'running' with startTime = chainTime
+    const nextLap = allLaps.find(l => l.lapNumber === maxCompleted + 1);
+    if (nextLap && nextLap.status !== 'complete' && nextLap.status !== 'running') {
+      updates.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'laps', nextLap.id), {
+        status: 'running',
+        startTime: nextLap.startTime || chainTime
+      }, { merge: true }));
+    }
+    
     if (updates.length > 0) await Promise.all(updates);
   }
 
@@ -769,7 +766,9 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   // ── Lap data ──────────────────────────────────────────────
   const completedLaps = laps.filter(l => l.status === 'complete').sort((a,b) => a.lapNumber - b.lapNumber);
   const runningLap    = laps.find(l => l.status === 'running');
-  const nextLap       = laps.find(l => l.status === 'claimed');
+  const nextLap = runningLap
+    ? laps.find(l => l.lapNumber > runningLap.lapNumber && (l.status === 'claimed' || l.status === 'open'))
+    : laps.find(l => l.status === 'claimed' || l.status === 'open');
 
   // ── Distance & pace from scraper durationMs ───────────────
   const totalMiles = completedLaps.length * LAP_DISTANCE;
