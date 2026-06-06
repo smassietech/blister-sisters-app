@@ -5,7 +5,7 @@ import {
   Zap, Wind, Mountain, MapPin, History, Navigation, Map, CalendarDays,
   Users, PlayCircle, PlusCircle, ArrowUpRight, Target, Settings, LogOut,
   Timer, Gauge, ListChecks, Info, Edit3, Lock, Unlock, Save, RefreshCw,
-  Ghost, ShieldCheck
+  Ghost, ShieldCheck, Medal
 } from 'lucide-react';
 import { 
   initializeApp 
@@ -253,7 +253,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [teamProfiles, setTeamProfiles] = useState([]);
   const [relayLaps, setRelayLaps] = useState([]);
-  const [raceMeta, setRaceMeta] = useState({ startTime: EVENT_DATE_DEFAULT.getTime(), goalMiles: 100, totalLaps: 25, categoryPos: '' });
+  const [raceMeta, setRaceMeta] = useState({ startTime: EVENT_DATE_DEFAULT.getTime(), goalMiles: 100, totalLaps: 25, categoryPos: '', genderPos: '' });
   const [trainingPlan, setTrainingPlan] = useState(DEFAULT_TRAINING_PLAN);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('dashboard');
@@ -363,9 +363,9 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
   const allLaps = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.lapNumber - b.lapNumber);
 
   // ── Auto-sync statuses based on scraper data ──────────────
-  // Find highest completed lap number from resultsbase
-  const scrapedCompleted = allLaps
-    .filter(l => l.source === 'resultsbase' && l.status === 'complete')
+  const scraperLaps = allLaps.filter(l => l.source === 'resultsbase');
+  const scrapedCompleted = scraperLaps
+    .filter(l => l.status === 'complete')
     .map(l => l.lapNumber);
   const maxCompleted = scrapedCompleted.length > 0 ? Math.max(...scrapedCompleted) : 0;
 
@@ -373,11 +373,33 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
     const updates = [];
     for (const lap of allLaps) {
       const lapRef = doc(db, 'artifacts', appId, 'public', 'data', 'laps', lap.id);
-      // Lap is confirmed complete by scraper — ensure status is correct
-      if (lap.lapNumber <= maxCompleted && lap.status !== 'complete' && lap.source === 'resultsbase') {
-        updates.push(setDoc(lapRef, { status: 'complete' }, { merge: true }));
+      const sLap = scraperLaps.find(l => l.lapNumber === lap.lapNumber);
+
+      let needsUpdate = false;
+      let updateData = {};
+
+      // 1. Lap is confirmed complete by scraper but app still shows open/claimed/running
+      // (This catches app-created laps that lack source: 'resultsbase')
+      if (lap.lapNumber <= maxCompleted && lap.status !== 'complete') {
+        needsUpdate = true;
+        updateData.status = 'complete';
       }
-      // Lap immediately after max completed should be 'running'
+
+      // 2. Fix missing endTime for completed laps using durationMs from the scraper
+      const isCompleting = updateData.status === 'complete' || lap.status === 'complete';
+      if (isCompleting && !lap.endTime && lap.startTime) {
+        const durMs = lap.durationMs || (sLap ? sLap.durationMs : null);
+        if (durMs) {
+          needsUpdate = true;
+          updateData.endTime = lap.startTime + durMs;
+        }
+      }
+
+      if (needsUpdate) {
+        updates.push(setDoc(lapRef, updateData, { merge: true }));
+      }
+
+      // 3. Lap immediately after max completed should be 'running'
       if (lap.lapNumber === maxCompleted + 1 && lap.status === 'claimed') {
         updates.push(setDoc(lapRef, { status: 'running', startTime: lap.startTime || Date.now() }, { merge: true }));
       }
@@ -385,11 +407,23 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
     if (updates.length > 0) await Promise.all(updates);
   }
 
-  setRelayLaps(allLaps);
+  // De-duplicate laps for the UI in case the scraper creates parallel documents
+  const uniqueLaps = [];
+  const highestLap = allLaps.length > 0 ? Math.max(...allLaps.map(l => l.lapNumber)) : 0;
+  for (let i = 1; i <= highestLap; i++) {
+    const lapDocs = allLaps.filter(l => l.lapNumber === i);
+    if (lapDocs.length > 0) {
+      // Prefer the app's native document format (lap_X) over arbitrary scraper IDs
+      const mainLap = lapDocs.find(l => l.id === `lap_${i}`) || lapDocs[0];
+      uniqueLaps.push(mainLap);
+    }
+  }
+
+  setRelayLaps(uniqueLaps);
 });
 
     const unsubMeta = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
-      if (s.exists()) setRaceMeta({ totalLaps: 30, categoryPos: '', ...s.data() });
+      if (s.exists()) setRaceMeta({ totalLaps: 30, categoryPos: '', genderPos: '', ...s.data() });
     });
 
     const unsubPlan = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), async (s) => {
@@ -764,10 +798,14 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   // ── On-deck estimated start = running lap est finish ──────
   const onDeckEstStart = estFinishMs;
 
-  // ── Category position ─────────────────────────────────────
+  // ── Category & Gender position ────────────────────────────
   const catPos    = raceMeta?.categoryPos ?? '';
   const catPosNum = catPos.split('/')[0] || '';
   const catPosOf  = catPos.split('/')[1] || '';
+
+  const genderPos    = raceMeta?.genderPos ?? '';
+  const genderPosNum = genderPos.split('/')[0] || '';
+  const genderPosOf  = genderPos.split('/')[1] || '';
 
   const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) : '--:--';
   const fmtDur  = (ms) => {
@@ -810,23 +848,37 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
         </div>
 
         {/* Elapsed time */}
-        <div className="relative z-10 text-center mb-4">
+        <div className="relative z-10 text-center mb-6">
           <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter tabular-nums">{elapsed}</h2>
         </div>
 
-        {/* Category position — loud and proud */}
-        {raceMeta?.categoryPos && (
-          <div className="relative z-10 flex items-center justify-center">
-            <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-6 py-3 flex items-center gap-3 border border-white/20">
-              <Trophy className="w-5 h-5 text-yellow-300" />
-              <div className="text-center">
-                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Category Position</div>
-                <div className="text-white font-black leading-none mt-0.5">
-                  <span className="text-3xl">{catPosNum}</span>
-                  <span className="text-sm text-pink-200 ml-1">/ {catPosOf}</span>
+        {/* Category & Gender positions — loud and proud */}
+        {(raceMeta?.categoryPos || raceMeta?.genderPos) && (
+          <div className="relative z-10 flex flex-wrap items-center justify-center gap-3">
+            {raceMeta?.categoryPos && (
+              <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3 flex items-center justify-center gap-3 border border-white/20 flex-1 min-w-[130px]">
+                <Trophy className="w-6 h-6 text-yellow-300 shrink-0" />
+                <div className="text-left">
+                  <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Category</div>
+                  <div className="text-white font-black leading-none mt-0.5">
+                    <span className="text-3xl">{catPosNum}</span>
+                    {catPosOf && <span className="text-sm text-pink-200 ml-1">/ {catPosOf}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+            {raceMeta?.genderPos && (
+              <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3 flex items-center justify-center gap-3 border border-white/20 flex-1 min-w-[130px]">
+                <Medal className="w-6 h-6 text-teal-300 shrink-0" />
+                <div className="text-left">
+                  <div className="text-[9px] font-black uppercase tracking-[0.25em] text-pink-200">Gender</div>
+                  <div className="text-white font-black leading-none mt-0.5">
+                    <span className="text-3xl">{genderPosNum}</span>
+                    {genderPosOf && <span className="text-sm text-pink-200 ml-1">/ {genderPosOf}</span>}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
