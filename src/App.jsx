@@ -798,18 +798,12 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   const onDeckEstStart = estFinishMs;
 
   // ── Category & Gender position ────────────────────────────
-  const getPosValue = (val) => {
-    if (val === null || val === undefined || val === '') return null;
-    return String(val).trim();
-  };
-
-  const catPos    = getPosValue(raceMeta?.categoryPos ?? raceMeta?.CategoryPos);
-  const catPosNum = catPos ? catPos.split('/')[0] : '--';
-  const catPosOf  = catPos?.includes('/') ? catPos.split('/')[1] : '';
-
-  const genderPos    = getPosValue(raceMeta?.genderPos ?? raceMeta?.GenderPos);
-  const genderPosNum = genderPos ? genderPos.split('/')[0] : '--';
-  const genderPosOf  = genderPos?.includes('/') ? genderPos.split('/')[1] : '';
+  const catPos      = String(raceMeta?.categoryPos || raceMeta?.CategoryPos || '').trim();
+  const catPosNum   = catPos.split('/')[0] || '--';
+  const catPosOf    = catPos.includes('/') ? catPos.split('/')[1] : '';
+  const genderPos   = String(raceMeta?.genderPos || raceMeta?.GenderPos || '').trim();
+  const genderPosNum = genderPos.split('/')[0] || '--';
+  const genderPosOf  = genderPos.includes('/') ? genderPos.split('/')[1] : '';
 
   const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) : '--:--';
   const fmtDur  = (ms) => {
