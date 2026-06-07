@@ -710,21 +710,67 @@ function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
 }
 
 function RaceDayDashboard({ raceMeta: raceMetaProp, laps, user, db, appId, currentProfile }) {
-  // Local subscription — bypasses any prop-chain stale closure issues
   const [raceMeta, setRaceMeta] = useState(raceMetaProp || {});
   const [elapsed, setElapsed] = useState('');
   const [tick, setTick] = useState(Date.now());
+  const [lapTimesRest, setLapTimesRest] = useState({});
 
+  // ── REST fetch for race_meta (bypasses SDK cache bug) ─────
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
-      if (s.exists()) {
-        const d = s.data();
-        console.log('[RaceDayDashboard] categoryPos:', d.categoryPos, 'genderPos:', d.genderPos);
-        setRaceMeta(d);
-      }
-    });
-    return () => unsub();
-  }, [db, appId]);
+    const fetchMeta = async () => {
+      try {
+        const r = await fetch('https://firestore.googleapis.com/v1/projects/blister-sisters/databases/(default)/documents/artifacts/blister-sisters-app/public/data/race_meta/main');
+        const d = await r.json();
+        const parsed = {};
+        Object.entries(d.fields || {}).forEach(([k, v]) => {
+          if (v.stringValue !== undefined) parsed[k] = v.stringValue;
+          else if (v.integerValue !== undefined) parsed[k] = Number(v.integerValue);
+          else if (v.doubleValue !== undefined) parsed[k] = v.doubleValue;
+          else if (v.mapValue && v.mapValue.fields) {
+            const map = {};
+            Object.entries(v.mapValue.fields).forEach(([mk, mv]) => {
+              if (mv.mapValue && mv.mapValue.fields) {
+                const inner = {};
+                Object.entries(mv.mapValue.fields).forEach(([ik, iv]) => {
+                  if (iv.stringValue !== undefined) inner[ik] = iv.stringValue;
+                  else if (iv.integerValue !== undefined) inner[ik] = Number(iv.integerValue);
+                  else if (iv.doubleValue !== undefined) inner[ik] = Number(iv.doubleValue);
+                });
+                map[mk] = inner;
+              } else if (mv.stringValue !== undefined) map[mk] = mv.stringValue;
+              else if (mv.integerValue !== undefined) map[mk] = Number(mv.integerValue);
+            });
+            parsed[k] = map;
+          }
+        });
+        console.log('[REST] categoryPos:', parsed.categoryPos, 'genderPos:', parsed.genderPos);
+        setRaceMeta(prev => ({ ...prev, ...parsed }));
+      } catch (e) { console.error('[REST meta]', e); }
+    };
+    fetchMeta();
+    const interval = setInterval(fetchMeta, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ── REST fetch for lap times (SDK misses scraper fields) ──
+  useEffect(() => {
+    const fetchLaps = async () => {
+      try {
+        const r = await fetch('https://firestore.googleapis.com/v1/projects/blister-sisters/databases/(default)/documents/artifacts/blister-sisters-app/public/data/laps');
+        const d = await r.json();
+        const times = {};
+        (d.documents || []).forEach(doc => {
+          const f = doc.fields || {};
+          const num = parseInt(f.lapNumber?.integerValue, 10);
+          if (num) times[num] = { rawTime: f.rawTime?.stringValue || null, durationMs: parseInt(f.durationMs?.integerValue, 10) || null };
+        });
+        setLapTimesRest(times);
+      } catch (e) { console.error('[REST laps]', e); }
+    };
+    fetchLaps();
+    const interval = setInterval(fetchLaps, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -749,10 +795,10 @@ function RaceDayDashboard({ raceMeta: raceMetaProp, laps, user, db, appId, curre
     ? laps.find(l => l.lapNumber > runningLap.lapNumber && (l.status === 'claimed' || l.status === 'open'))
     : laps.find(l => l.status === 'claimed' || l.status === 'open');
 
-  // ── Distance & pace ───────────────────────────────────────
+  // ── Distance & pace (use REST durationMs as fallback) ─────
   const totalMiles = completedLaps.length * LAP_DISTANCE;
   const lapDurations = completedLaps
-    .map(l => l.durationMs || (l.endTime && l.startTime ? l.endTime - l.startTime : null))
+    .map(l => l.durationMs || lapTimesRest[l.lapNumber]?.durationMs || (l.endTime && l.startTime ? l.endTime - l.startTime : null))
     .filter(Boolean);
   const totalDurationMs = lapDurations.reduce((a, b) => a + b, 0);
   const avgLapMs = lapDurations.length > 0 ? Math.round(totalDurationMs / lapDurations.length) : 0;
@@ -772,10 +818,10 @@ function RaceDayDashboard({ raceMeta: raceMetaProp, laps, user, db, appId, curre
   const onDeckEstStart = estFinishMs;
 
   // ── Category & Gender position ────────────────────────────
-  const catPos      = String(raceMeta?.categoryPos || raceMeta?.CategoryPos || '').trim();
+  const catPos      = String(raceMeta?.categoryPos || '').trim();
   const catPosNum   = catPos.split('/')[0] || '--';
   const catPosOf    = catPos.includes('/') ? catPos.split('/')[1] : '';
-  const genderPos   = String(raceMeta?.genderPos || raceMeta?.GenderPos || '').trim();
+  const genderPos   = String(raceMeta?.genderPos || '').trim();
   const genderPosNum = genderPos.split('/')[0] || '--';
   const genderPosOf  = genderPos.includes('/') ? genderPos.split('/')[1] : '';
 
@@ -944,12 +990,12 @@ function RaceDayDashboard({ raceMeta: raceMetaProp, laps, user, db, appId, curre
           </div>
           <div className="divide-y divide-neutral-800/50">
             {[...completedLaps].reverse().map(lap => {
-              // Use rawTime from scraper for exact display — strip leading "00:" if hours = 0
-              const displayTime = lap.rawTime
-                ? fmtRawTime(lap.rawTime)
-                : (lap.durationMs ? fmtAvgLap(lap.durationMs) : '--');
+              const restData = lapTimesRest[lap.lapNumber];
+              const rawTime = lap.rawTime || restData?.rawTime;
+              const durMs = lap.durationMs || restData?.durationMs;
+              const displayTime = rawTime ? fmtRawTime(rawTime) : (durMs ? fmtAvgLap(durMs) : '--');
               const runnerAvg = runnerAvgs[lap.runnerName]?.avgMs;
-              const isFast = runnerAvg && lap.durationMs && lap.durationMs < runnerAvg;
+              const isFast = runnerAvg && durMs && durMs < runnerAvg;
               return (
                 <div key={lap.lapNumber} className="flex items-center justify-between px-6 py-3 hover:bg-neutral-800/20 transition-colors">
                   <div className="flex items-center gap-3">
