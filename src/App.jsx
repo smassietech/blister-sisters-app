@@ -51,7 +51,7 @@ const FINAL_RESULTS = {
   categoryPos: '2/44',
   genderPos: '3/331',
   overallPos: '85/1229',
-  gunTime: '22:11:06',
+  gunTime: '24:07:12',
 };
 
 // --- UTILITY FUNCTIONS ---
