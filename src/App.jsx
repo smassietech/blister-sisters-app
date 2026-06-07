@@ -44,6 +44,15 @@ const PLAN_START_DATE = new Date('2026-02-23T00:00:00');
 const EVENT_DATE_DEFAULT = new Date('2026-06-06T00:00:00');
 // Actual race start noon BST June 6 — fallback if Firebase startTime not yet loaded
 const RACE_START_FALLBACK = new Date('2026-06-06T12:00:00').getTime();
+const RACE_FINISHED = true; // 🏆 Race complete — show celebration screen
+
+// Official final results — hardcoded from resultsbase
+const FINAL_RESULTS = {
+  categoryPos: '2/44',
+  genderPos: '3/331',
+  overallPos: '85/1229',
+  gunTime: '22:11:06',
+};
 
 // --- UTILITY FUNCTIONS ---
 function getCurrentTrainingDay() {
@@ -262,6 +271,71 @@ const StravaConnectButton = ({ onClick }) => (
     />
   </button>
 );
+
+// ==========================================
+// 🎉 CONFETTI + FIREWORKS COMPONENT
+// ==========================================
+function Confetti() {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener('resize', resize);
+    const colors = ['#ec4899','#f43f5e','#fbbf24','#06b6d4','#a855f7','#10b981','#fb923c','#f472b6','#34d399'];
+    const confetti = Array.from({ length: 150 }, () => ({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight * 2 - window.innerHeight,
+      w: Math.random() * 11 + 5, h: Math.random() * 5 + 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      vx: Math.random() * 2 - 1, vy: Math.random() * 2 + 1.2,
+      rot: Math.random() * 360, rotV: Math.random() * 4 - 2,
+      shape: Math.random() > 0.6 ? 'circle' : 'rect'
+    }));
+    const fireworks = [];
+    const spawnFirework = () => {
+      const cx = Math.random() * canvas.width * 0.8 + canvas.width * 0.1;
+      const cy = Math.random() * canvas.height * 0.45 + 60;
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      for (let i = 0; i < 40; i++) {
+        const angle = (i / 40) * Math.PI * 2;
+        const speed = Math.random() * 6 + 2;
+        fireworks.push({ x: cx, y: cy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, color, life: 1, size: Math.random() * 4 + 2 });
+      }
+    };
+    let frame = 0, animId;
+    const timers = [200, 700, 1300, 2000, 2800, 4000, 6000].map(t => setTimeout(spawnFirework, t));
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      confetti.forEach(p => {
+        p.y += p.vy; p.x += p.vx; p.rot += p.rotV;
+        if (p.y > canvas.height + 20) { p.y = -20; p.x = Math.random() * canvas.width; }
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot * Math.PI / 180);
+        ctx.fillStyle = p.color;
+        if (p.shape === 'circle') { ctx.beginPath(); ctx.arc(0, 0, p.w / 2.5, 0, Math.PI * 2); ctx.fill(); }
+        else { ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); }
+        ctx.restore();
+      });
+      frame++;
+      if (frame % 100 === 0) spawnFirework();
+      for (let i = fireworks.length - 1; i >= 0; i--) {
+        const fw = fireworks[i];
+        fw.x += fw.vx; fw.y += fw.vy; fw.vy += 0.08; fw.life -= 0.016;
+        if (fw.life <= 0) { fireworks.splice(i, 1); continue; }
+        ctx.save(); ctx.globalAlpha = fw.life;
+        ctx.fillStyle = fw.color; ctx.beginPath();
+        ctx.arc(fw.x, fw.y, fw.size * fw.life, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      animId = requestAnimationFrame(animate);
+    };
+    animate();
+    return () => { cancelAnimationFrame(animId); window.removeEventListener('resize', resize); timers.forEach(clearTimeout); };
+  }, []);
+  return <canvas ref={canvasRef} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 50, opacity: 0.8 }} />;
+}
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -525,7 +599,7 @@ export default function App() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-lg"><Flame className="w-6 h-6 text-white" /></div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-white uppercase italic leading-none">Blister Sisters</h1>
-              <p className="text-[10px] text-pink-400 font-black tracking-widest uppercase mt-1">{isRaceDay ? "RACE DAY LIVE" : "ENDURE 24"}</p>
+              <p className="text-[10px] text-pink-400 font-black tracking-widest uppercase mt-1">{isRaceDay ? (RACE_FINISHED ? 'RACE COMPLETE 🏆' : 'RACE DAY LIVE') : "ENDURE 24"}</p>
             </div>
           </div>
           <div className="flex items-center">
@@ -544,7 +618,9 @@ export default function App() {
       <main className="max-w-4xl mx-auto p-4 py-8">
         {view === 'dashboard' && (
           isRaceDay 
-          ? <RaceDayDashboard raceMeta={raceMeta} laps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile || { avatarEmoji: '🏃‍♀️', avatarBg: 'from-pink-500 to-rose-600', unitPref: 'mi' }} /> 
+          ? (RACE_FINISHED
+              ? <RaceFinishedDashboard laps={relayLaps} raceMeta={raceMeta} currentProfile={profile || { avatarEmoji: '🏃‍♀️', avatarBg: 'from-pink-500 to-rose-600', unitPref: 'mi' }} />
+              : <RaceDayDashboard raceMeta={raceMeta} laps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile || { avatarEmoji: '🏃‍♀️', avatarBg: 'from-pink-500 to-rose-600', unitPref: 'mi' }} />)
           : <DashboardView logs={logs} openLogModal={openLogModal} todayWorkout={todayWorkout} totalMiles={totalMiles} completionPct={completionPct} profile={profile || {}} currentWeekNum={currentWeekNum} diffDays={diffDays} toggleStrava={toggleStrava} />
         )}
         {view === 'plan' && (
@@ -705,6 +781,216 @@ function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-neutral-900 border border-pink-500/30 rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl relative"><button onClick={onClose} className="absolute top-6 right-6 p-2 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-4 h-4" /></button><h3 className="text-2xl font-black text-white mb-6 italic">Event Settings</h3><div className="space-y-5"><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Total Relay Laps</label><input type="number" value={Number(raceMeta.totalLaps || 25)} onChange={(e) => updateRaceMeta('totalLaps', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Team Goal ({currentProfile?.unitPref || 'Miles'})</label><input type="number" value={Number(raceMeta.goalMiles || 100)} onChange={(e) => updateRaceMeta('goalMiles', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 shadow-inner font-black" /></div><div><label className="text-[10px] font-black text-neutral-400 uppercase block mb-2 tracking-widest">Race Start Time</label><input type="datetime-local" value={new Date((raceMeta.startTime || Date.now()) - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0,16)} onChange={(e) => updateRaceMeta('startTime', new Date(e.target.value).getTime())} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-white focus:outline-none focus:border-pink-500 [color-scheme:dark] shadow-inner font-bold" /></div></div><div className="mt-8 pt-6 border-t border-white/5"><h4 className="text-[10px] font-black text-rose-500 uppercase block mb-3 tracking-widest">Danger Zone</h4><button onClick={resetPlanToDefault} className={`w-full ${resetConfirm ? 'bg-rose-500 text-white' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white'} border border-rose-500/30 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center transition-all shadow-lg`}><RefreshCw className="w-4 h-4 mr-2" /> {resetConfirm ? 'Double Tap to Reset Plan' : 'Master Reset Team Plan'}</button></div></div>
+    </div>
+  );
+}
+
+// ==========================================
+// 🏆 RACE FINISHED CELEBRATION DASHBOARD
+// ==========================================
+function RaceFinishedDashboard({ laps, raceMeta: raceMetaProp, currentProfile }) {
+  const [lapTimesRest, setLapTimesRest] = useState({});
+  const [raceMeta, setRaceMeta] = useState(raceMetaProp || {});
+
+  useEffect(() => {
+    const fetchMeta = async () => {
+      try {
+        const r = await fetch('https://firestore.googleapis.com/v1/projects/blister-sisters/databases/(default)/documents/artifacts/blister-sisters-app/public/data/race_meta/main');
+        const d = await r.json();
+        const parsed = {};
+        Object.entries(d.fields || {}).forEach(([k, v]) => {
+          if (v.stringValue !== undefined) parsed[k] = v.stringValue;
+          else if (v.integerValue !== undefined) parsed[k] = Number(v.integerValue);
+          else if (v.doubleValue !== undefined) parsed[k] = v.doubleValue;
+          else if (v.mapValue && v.mapValue.fields) {
+            const map = {};
+            Object.entries(v.mapValue.fields).forEach(([mk, mv]) => {
+              if (mv.mapValue && mv.mapValue.fields) {
+                const inner = {};
+                Object.entries(mv.mapValue.fields).forEach(([ik, iv]) => {
+                  if (iv.stringValue !== undefined) inner[ik] = iv.stringValue;
+                  else if (iv.integerValue !== undefined) inner[ik] = Number(iv.integerValue);
+                  else if (iv.doubleValue !== undefined) inner[ik] = Number(iv.doubleValue);
+                });
+                map[mk] = inner;
+              } else if (mv.stringValue !== undefined) map[mk] = mv.stringValue;
+              else if (mv.integerValue !== undefined) map[mk] = Number(mv.integerValue);
+            });
+            parsed[k] = map;
+          }
+        });
+        setRaceMeta(prev => ({ ...prev, ...parsed }));
+      } catch (e) {}
+    };
+    const fetchLaps = async () => {
+      try {
+        const r = await fetch('https://firestore.googleapis.com/v1/projects/blister-sisters/databases/(default)/documents/artifacts/blister-sisters-app/public/data/laps');
+        const d = await r.json();
+        const times = {};
+        (d.documents || []).forEach(doc => {
+          const f = doc.fields || {};
+          const num = parseInt(f.lapNumber?.integerValue, 10);
+          if (num) times[num] = { rawTime: f.rawTime?.stringValue || null, durationMs: parseInt(f.durationMs?.integerValue, 10) || null };
+        });
+        setLapTimesRest(times);
+      } catch (e) {}
+    };
+    fetchMeta();
+    fetchLaps();
+  }, []);
+
+  const completedLaps = laps.filter(l => l.status === 'complete').sort((a, b) => a.lapNumber - b.lapNumber);
+  const totalMiles = completedLaps.length * LAP_DISTANCE;
+  const lapDurations = completedLaps.map(l => l.durationMs || lapTimesRest[l.lapNumber]?.durationMs).filter(Boolean);
+  const totalDurMs = lapDurations.reduce((a, b) => a + b, 0);
+  const avgLapMs = lapDurations.length > 0 ? Math.round(totalDurMs / lapDurations.length) : 0;
+  const avgPace = totalMiles > 0 ? (totalDurMs / 60000) / totalMiles : 0;
+  const runnerAvgs = raceMeta?.runnerAvgs || {};
+
+  // Per-runner stats
+  const RUNNER_EMOJIS = { Laura: '💖', 'Jessy P': '⚡', Lucie: '🦄', Abby: '🔥', Emmita: '🌟' };
+  const runnerStats = {};
+  completedLaps.forEach(lap => {
+    const name = lap.runnerName;
+    if (!name) return;
+    const durMs = lap.durationMs || lapTimesRest[lap.lapNumber]?.durationMs;
+    if (!runnerStats[name]) runnerStats[name] = { laps: 0, times: [], bestMs: Infinity };
+    runnerStats[name].laps++;
+    if (durMs) { runnerStats[name].times.push(durMs); if (durMs < runnerStats[name].bestMs) runnerStats[name].bestMs = durMs; }
+  });
+
+  const fmtAvgLap = (ms) => { if (!ms || ms === Infinity) return '--'; return `${Math.floor(ms/60000)}:${String(Math.floor((ms%60000)/1000)).padStart(2,'0')}`; };
+  const fmtPace = (mpm) => { if (!mpm) return '--:--'; return `${Math.floor(mpm)}:${Math.round((mpm%1)*60).toString().padStart(2,'0')}`; };
+
+  const catParts = FINAL_RESULTS.categoryPos.split('/');
+  const genParts = FINAL_RESULTS.genderPos.split('/');
+  const ovParts = FINAL_RESULTS.overallPos.split('/');
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <Confetti />
+
+      {/* ── HERO ── */}
+      <div className="rounded-3xl p-8 shadow-2xl relative overflow-hidden text-center" style={{ background: 'linear-gradient(135deg, #92400e 0%, #be185d 30%, #7c3aed 65%, #0e7490 100%)' }}>
+        <div className="absolute inset-0 bg-black/25" />
+        <div className="relative z-10">
+          <div className="text-7xl mb-3" style={{ filter: 'drop-shadow(0 0 20px rgba(255,215,0,0.6))' }}>🏆</div>
+          <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter uppercase italic mb-2" style={{ textShadow: '0 2px 20px rgba(0,0,0,0.5)' }}>Mission Complete!</h1>
+          <p className="text-white/90 font-black text-base uppercase tracking-widest mb-1">RTB Blister Sisters</p>
+          <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-6">Endure 24 · Reading · June 6–7, 2026</p>
+          <div className="inline-flex items-center gap-3 bg-white/20 backdrop-blur-sm rounded-2xl px-6 py-3 border border-white/30 shadow-xl">
+            <Timer className="w-5 h-5 text-yellow-300" />
+            <span className="font-black text-white text-2xl tabular-nums">{FINAL_RESULTS.gunTime}</span>
+            <span className="text-white/60 text-xs font-bold uppercase tracking-widest">Gun Time</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── PODIUM ── */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-neutral-900 border-2 border-yellow-500/60 rounded-3xl p-5 text-center shadow-2xl relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-b from-yellow-500/15 to-transparent" />
+          <div className="relative z-10">
+            <div className="text-5xl mb-2">🥈</div>
+            <div className="text-4xl font-black text-yellow-300 leading-none">{catParts[0]}</div>
+            <div className="text-[10px] text-yellow-200/70 font-black uppercase tracking-widest mt-2 leading-tight">Small Female<br/>Team</div>
+            <div className="text-[10px] text-neutral-500 font-bold mt-1.5">of {catParts[1]} teams</div>
+          </div>
+        </div>
+        <div className="bg-neutral-900 border-2 border-pink-500/60 rounded-3xl p-5 text-center shadow-2xl relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-b from-pink-500/15 to-transparent" />
+          <div className="relative z-10">
+            <div className="text-5xl mb-2">🥉</div>
+            <div className="text-4xl font-black text-pink-300 leading-none">{genParts[0]}</div>
+            <div className="text-[10px] text-pink-200/70 font-black uppercase tracking-widest mt-2 leading-tight">Overall<br/>Female</div>
+            <div className="text-[10px] text-neutral-500 font-bold mt-1.5">of {genParts[1]} women</div>
+          </div>
+        </div>
+        <div className="bg-neutral-900 border-2 border-teal-500/60 rounded-3xl p-5 text-center shadow-2xl relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-b from-teal-500/15 to-transparent" />
+          <div className="relative z-10">
+            <div className="text-5xl mb-2">🌍</div>
+            <div className="text-4xl font-black text-teal-300 leading-none">{ovParts[0]}</div>
+            <div className="text-[10px] text-teal-200/70 font-black uppercase tracking-widest mt-2 leading-tight">Overall<br/>Position</div>
+            <div className="text-[10px] text-neutral-500 font-bold mt-1.5">of {ovParts[1]} teams</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── FINAL STATS ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard icon={<Activity />} label="Total Distance" val={totalMiles > 0 ? totalMiles : completedLaps.length * 5} unit="miles" color="text-pink-500" />
+        <StatCard icon={<Timer />} label="Avg Pace /mi" val={avgPace > 0 ? fmtPace(avgPace) : '--:--'} unit="per mile" color="text-teal-400" />
+        <StatCard icon={<Gauge />} label="Avg Lap Time" val={fmtAvgLap(avgLapMs)} unit="per lap" color="text-purple-500" />
+        <StatCard icon={<Target />} label="Laps Done" val={completedLaps.length} unit="laps" color="text-indigo-400" />
+      </div>
+
+      {/* ── RUNNER BREAKDOWN ── */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-xl">
+        <div className="px-6 py-4 border-b border-neutral-800">
+          <h3 className="text-xs font-black uppercase tracking-widest text-neutral-400 flex items-center">
+            <Users className="w-4 h-4 mr-2 text-pink-500" /> Runner Breakdown
+          </h3>
+        </div>
+        <div className="divide-y divide-neutral-800/50">
+          {Object.entries(runnerStats).sort((a, b) => b[1].laps - a[1].laps).map(([name, stats]) => {
+            const avg = stats.times.length > 0 ? Math.round(stats.times.reduce((a, b) => a + b, 0) / stats.times.length) : 0;
+            const best = stats.bestMs === Infinity ? 0 : stats.bestMs;
+            return (
+              <div key={name} className="flex items-center justify-between px-6 py-4 hover:bg-neutral-800/20 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="text-2xl">{RUNNER_EMOJIS[name] || '🏃‍♀️'}</div>
+                  <div>
+                    <div className="font-black text-white">{name}</div>
+                    <div className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest mt-0.5">{stats.laps} laps · {stats.laps * 5} miles</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-black text-teal-400">{fmtAvgLap(avg)}</div>
+                  <div className="text-[9px] text-neutral-600 font-bold uppercase tracking-widest mt-0.5">avg · best {fmtAvgLap(best)}</div>
+                </div>
+              </div>
+            );
+          })}
+          {Object.keys(runnerStats).length === 0 && <div className="px-6 py-6 text-neutral-500 text-sm italic text-center">Loading runner stats...</div>}
+        </div>
+      </div>
+
+      {/* ── FULL LAP HISTORY ── */}
+      {completedLaps.length > 0 && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl overflow-hidden shadow-xl">
+          <div className="px-6 py-4 border-b border-neutral-800 flex justify-between items-center">
+            <h3 className="text-xs font-black uppercase tracking-widest text-neutral-400 flex items-center">
+              <History className="w-4 h-4 mr-2 text-teal-400" /> All {completedLaps.length} Laps — Official Times
+            </h3>
+            <span className="text-[9px] text-neutral-600 font-black uppercase tracking-widest">resultsbase</span>
+          </div>
+          <div className="divide-y divide-neutral-800/50 max-h-[480px] overflow-y-auto">
+            {[...completedLaps].reverse().map(lap => {
+              const restData = lapTimesRest[lap.lapNumber];
+              const rawTime = lap.rawTime || restData?.rawTime;
+              const durMs = lap.durationMs || restData?.durationMs;
+              const displayTime = rawTime ? fmtRawTime(rawTime) : (durMs ? fmtAvgLap(durMs) : '--');
+              const runnerAvg = runnerAvgs[lap.runnerName]?.avgMs;
+              const isFast = runnerAvg && durMs && durMs < runnerAvg;
+              return (
+                <div key={lap.lapNumber} className="flex items-center justify-between px-6 py-3 hover:bg-neutral-800/20 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-neutral-950 rounded-lg flex items-center justify-center border border-neutral-800 shrink-0">
+                      <span className="text-[10px] font-black text-neutral-400">L{lap.lapNumber}</span>
+                    </div>
+                    <span className="font-bold text-white text-sm">{lap.runnerName}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`font-black tabular-nums text-sm ${isFast ? 'text-teal-400' : 'text-neutral-200'}`}>{displayTime}</span>
+                    {isFast && <span className="text-[9px] text-teal-400 font-black uppercase tracking-widest">PB</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
