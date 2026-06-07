@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Flame, Calendar, Activity, ChevronRight, CheckCircle2, 
   Trophy, Plus, X, Heart, TrendingUp, AlertCircle, Watch,
@@ -22,7 +22,7 @@ import {
 // ==========================================
 // 🛠️ SETTINGS
 // ==========================================
-const DEBUG_FORCE_RACE_DAY = true; // force redeploy
+const DEBUG_FORCE_RACE_DAY = true; // force redeploy v3
 const TEAM_INVITE_CODE = 'ENDURE24';
 const ADMIN_SECRET_KEY = 'SISTER_HQ_2026'; 
 
@@ -31,7 +31,7 @@ const SHOW_STRAVA_FEATURES = false;
 
 const LAP_DISTANCE = 5; // Miles
 const MI_TO_KM = 1.60934;
-const PLAN_VERSION = 7; // 🚀 Bumped to 7 to force sync Week 7 fixes to Firestore
+const PLAN_VERSION = 7;
 
 // ==========================================
 // 🔗 STRAVA API CREDENTIALS
@@ -41,7 +41,9 @@ const STRAVA_CLIENT_SECRET = '06e729f59a6a23d0fa778aab2f254e71c41a03f0';
 
 // --- DATE CONSTANTS ---
 const PLAN_START_DATE = new Date('2026-02-23T00:00:00'); 
-const EVENT_DATE_DEFAULT = new Date('2026-06-06T00:00:00'); 
+const EVENT_DATE_DEFAULT = new Date('2026-06-06T00:00:00');
+// Actual race start noon BST June 6 — fallback if Firebase startTime not yet loaded
+const RACE_START_FALLBACK = new Date('2026-06-06T12:00:00').getTime();
 
 // --- UTILITY FUNCTIONS ---
 function getCurrentTrainingDay() {
@@ -55,6 +57,20 @@ function getCurrentTrainingDay() {
 
 const displayDist = (miles, unitPref) => unitPref === 'km' ? miles * MI_TO_KM : miles;
 const displayPace = (minPerMile, unitPref) => unitPref === 'km' ? minPerMile / MI_TO_KM : minPerMile;
+
+// Format rawTime string "HH:MM:SS" → "44:26" or "1:02:33"
+const fmtRawTime = (rawTime) => {
+  if (!rawTime) return null;
+  const parts = rawTime.split(':');
+  if (parts.length === 3) {
+    const h = parseInt(parts[0], 10);
+    const m = parts[1];
+    const s = parts[2];
+    if (h === 0) return `${parseInt(m, 10)}:${s}`;
+    return `${h}:${m}:${s}`;
+  }
+  return rawTime;
+};
 
 // --- OFFICIAL PDF ALIGNED PLAN ---
 const DEFAULT_TRAINING_PLAN = [
@@ -253,11 +269,15 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [teamProfiles, setTeamProfiles] = useState([]);
   const [relayLaps, setRelayLaps] = useState([]);
-  const [raceMeta, setRaceMeta] = useState({ startTime: EVENT_DATE_DEFAULT.getTime(), goalMiles: 100, totalLaps: 25, categoryPos: '', genderPos: '' });
+  const [raceMeta, setRaceMeta] = useState({ startTime: RACE_START_FALLBACK, goalMiles: 100, totalLaps: 25, categoryPos: '', genderPos: '' });
   const [trainingPlan, setTrainingPlan] = useState(DEFAULT_TRAINING_PLAN);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('dashboard');
   
+  // ── raceMetaRef keeps relay listener closure current ──────
+  const raceMetaRef = useRef(raceMeta);
+  useEffect(() => { raceMetaRef.current = raceMeta; }, [raceMeta]);
+
   // Modals / UI State
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
@@ -277,7 +297,7 @@ export default function App() {
   const isRaceDay = useMemo(() => {
     if (DEBUG_FORCE_RACE_DAY) return true;
     const now = new Date();
-    const raceStart = new Date(raceMeta?.startTime || EVENT_DATE_DEFAULT.getTime());
+    const raceStart = new Date(raceMeta?.startTime || RACE_START_FALLBACK);
     const raceDateOnly = new Date(raceStart.getFullYear(), raceStart.getMonth(), raceStart.getDate());
     const raceEnd = new Date(raceDateOnly.getTime() + (48 * 3600000));
     return now >= raceDateOnly && now < raceEnd;
@@ -289,7 +309,6 @@ export default function App() {
     link.href = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='7' fill='%23ec4899'/%3E%3Cpath d='M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
   }, []);
 
-  // Handle Strava OAuth Return
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
@@ -299,26 +318,14 @@ export default function App() {
            const res = await fetch('https://www.strava.com/oauth/token', {
              method: 'POST',
              headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-               client_id: STRAVA_CLIENT_ID,
-               client_secret: STRAVA_CLIENT_SECRET,
-               code: code,
-               grant_type: 'authorization_code'
-             })
+             body: JSON.stringify({ client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, code, grant_type: 'authorization_code' })
            });
            const data = await res.json();
            if (data.access_token) {
-              await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), {
-                stravaConnected: true,
-                stravaAccessToken: data.access_token,
-                stravaRefreshToken: data.refresh_token,
-                stravaTokenExpiresAt: data.expires_at
-              }, { merge: true });
+              await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { stravaConnected: true, stravaAccessToken: data.access_token, stravaRefreshToken: data.refresh_token, stravaTokenExpiresAt: data.expires_at }, { merge: true });
            }
            window.history.replaceState({}, document.title, window.location.pathname);
-         } catch (e) {
-           console.error("Strava auth error", e);
-         }
+         } catch (e) { console.error("Strava auth error", e); }
       };
       exchangeToken();
     }
@@ -353,96 +360,88 @@ export default function App() {
       if (myP) setProfile(myP);
       else if (!user.isAnonymous) setShowProfileSetup(true);
       else if (user.isAnonymous) {
-        // Handle auto-ghost for anonymous admin entry
         setProfile({ displayName: 'Ghost Admin', role: 'admin', unitPref: 'mi', avatarEmoji: '👻', avatarBg: 'from-neutral-800 to-neutral-900' });
         setShowProfileSetup(false);
       }
     });
 
-const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'laps'), async (s) => {
-  const allLaps = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.lapNumber - b.lapNumber);
+    const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'laps'), async (s) => {
+      const allLaps = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.lapNumber - b.lapNumber);
 
-  // ── Auto-sync from scraper data ──────────────────────────
-  const scraperLaps = allLaps.filter(l => l.source === 'resultsbase');
-  const completedNums = scraperLaps.filter(l => l.status === 'complete').map(l => l.lapNumber);
-  const maxCompleted = completedNums.length > 0 ? Math.max(...completedNums) : 0;
-  
-  if (maxCompleted > 0) {
-    const updates = [];
-    // Build the chain: lap 1 starts at raceMeta.startTime, lap N starts at lap N-1's endTime
-    let chainTime = raceMeta?.startTime || Date.now();
-    
-    for (let n = 1; n <= maxCompleted; n++) {
-      const lap = allLaps.find(l => l.lapNumber === n);
-      if (!lap) continue;
-      const sLap = scraperLaps.find(l => l.lapNumber === n);
-      const durMs = lap.durationMs || sLap?.durationMs;
-      if (!durMs) { chainTime = lap.endTime || chainTime; continue; }
+      // ── Auto-sync from scraper data ──────────────────────────
+      const scraperLaps = allLaps.filter(l => l.source === 'resultsbase');
+      const completedNums = scraperLaps.filter(l => l.status === 'complete').map(l => l.lapNumber);
+      const maxCompleted = completedNums.length > 0 ? Math.max(...completedNums) : 0;
       
-      const newStart = lap.startTime || chainTime;
-      const newEnd   = newStart + durMs;
-      chainTime = newEnd;
-      
-      const needs = {};
-      if (lap.status !== 'complete') needs.status = 'complete';
-      if (!lap.startTime) needs.startTime = newStart;
-      if (!lap.endTime)   needs.endTime   = newEnd;
-      if (Object.keys(needs).length > 0) {
-        updates.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'laps', lap.id), needs, { merge: true }));
+      if (maxCompleted > 0) {
+        const updates = [];
+        // Use raceMetaRef so we always have the latest startTime from Firebase
+        let chainTime = raceMetaRef.current?.startTime || RACE_START_FALLBACK;
+        
+        for (let n = 1; n <= maxCompleted; n++) {
+          const lap = allLaps.find(l => l.lapNumber === n);
+          if (!lap) continue;
+          const sLap = scraperLaps.find(l => l.lapNumber === n);
+          const durMs = lap.durationMs || sLap?.durationMs;
+          if (!durMs) { chainTime = lap.endTime || chainTime; continue; }
+          
+          const newStart = lap.startTime || chainTime;
+          const newEnd   = newStart + durMs;
+          chainTime = newEnd;
+          
+          const needs = {};
+          if (lap.status !== 'complete') needs.status = 'complete';
+          if (!lap.startTime) needs.startTime = newStart;
+          if (!lap.endTime)   needs.endTime   = newEnd;
+          if (Object.keys(needs).length > 0) {
+            updates.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'laps', lap.id), needs, { merge: true }));
+          }
+        }
+        
+        // Next lap after max completed: set to 'running' with startTime = chainTime
+        const nextLap = allLaps.find(l => l.lapNumber === maxCompleted + 1);
+        if (nextLap && nextLap.status !== 'complete' && nextLap.status !== 'running') {
+          updates.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'laps', nextLap.id), {
+            status: 'running',
+            startTime: nextLap.startTime || chainTime
+          }, { merge: true }));
+        }
+        
+        if (updates.length > 0) await Promise.all(updates);
       }
-    }
-    
-    // Next lap after max completed: set to 'running' with startTime = chainTime
-    const nextLap = allLaps.find(l => l.lapNumber === maxCompleted + 1);
-    if (nextLap && nextLap.status !== 'complete' && nextLap.status !== 'running') {
-      updates.push(setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'laps', nextLap.id), {
-        status: 'running',
-        startTime: nextLap.startTime || chainTime
-      }, { merge: true }));
-    }
-    
-    if (updates.length > 0) await Promise.all(updates);
-  }
 
-  // De-duplicate laps for the UI in case the scraper creates parallel documents
-  // Merge multiple docs for same lapNumber — prefer 'complete' status, latest updatedAt
-  const lapsByNumber = {};
-  for (const lap of allLaps) {
-    const existing = lapsByNumber[lap.lapNumber];
-    if (!existing) {
-      lapsByNumber[lap.lapNumber] = { ...lap };
-    } else {
-      // Merge fields — newer/more authoritative data wins
-      const merged = { ...existing, ...lap };
-      // Status priority: complete > running > claimed > open
-      const statusRank = { complete: 4, running: 3, claimed: 2, open: 1 };
-      if ((statusRank[lap.status] || 0) > (statusRank[existing.status] || 0)) {
-        merged.status = lap.status;
-      } else {
-        merged.status = existing.status;
+      // ── Merge duplicates by lapNumber ─────────────────────────
+      const lapsByNumber = {};
+      for (const lap of allLaps) {
+        const existing = lapsByNumber[lap.lapNumber];
+        if (!existing) {
+          lapsByNumber[lap.lapNumber] = { ...lap };
+        } else {
+          const merged = { ...existing, ...lap };
+          const statusRank = { complete: 4, running: 3, claimed: 2, open: 1 };
+          merged.status = (statusRank[lap.status] || 0) > (statusRank[existing.status] || 0) ? lap.status : existing.status;
+          merged.durationMs = lap.durationMs || existing.durationMs;
+          merged.endTime    = lap.endTime    || existing.endTime;
+          merged.rawTime    = lap.rawTime    || existing.rawTime;
+          merged.runnerId   = existing.runnerId || lap.runnerId;
+          lapsByNumber[lap.lapNumber] = merged;
+        }
       }
-      // Preserve durationMs/endTime/rawTime from whichever has it
-      merged.durationMs = lap.durationMs || existing.durationMs;
-      merged.endTime    = lap.endTime    || existing.endTime;
-      merged.rawTime    = lap.rawTime    || existing.rawTime;
-      // Preserve runnerId from manual claim (scraper doesn't write runnerId)
-      merged.runnerId   = existing.runnerId || lap.runnerId;
-      lapsByNumber[lap.lapNumber] = merged;
-    }
-  }
-  const uniqueLaps = Object.values(lapsByNumber).sort((a, b) => a.lapNumber - b.lapNumber);
-  setRelayLaps(uniqueLaps);
-});
+      const uniqueLaps = Object.values(lapsByNumber).sort((a, b) => a.lapNumber - b.lapNumber);
+      setRelayLaps(uniqueLaps);
+    });
 
     const unsubMeta = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
-      if (s.exists()) setRaceMeta({ totalLaps: 30, categoryPos: '', genderPos: '', ...s.data() });
+      if (s.exists()) {
+        const data = s.data();
+        setRaceMeta(prev => ({ ...prev, ...data }));
+      }
     });
 
     const unsubPlan = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), async (s) => {
       if (s.exists() && s.data().version === PLAN_VERSION) {
         setTrainingPlan(s.data().weeks);
       } else {
-        // 🔥 FORCE SYNC: If local code version is newer than DB version, overwrite the DB
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'training', 'plan'), { version: PLAN_VERSION, weeks: DEFAULT_TRAINING_PLAN });
       }
       setLoading(false);
@@ -459,13 +458,10 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
   const completedLogIds = useMemo(() => {
     const skippedIds = new Set(logs.filter(l => l.isSkipped).map(l => l.dayId));
     const ids = new Set(logs.filter(l => !l.isSkipped).map(l => l.dayId));
-    
     trainingPlan.forEach((w, wIndex) => {
       if (wIndex < 6) { 
         w.days.forEach(d => {
-          if ((d.req !== "" || d.opt !== "REST") && !skippedIds.has(d.id)) {
-            ids.add(d.id);
-          }
+          if ((d.req !== "" || d.opt !== "REST") && !skippedIds.has(d.id)) ids.add(d.id);
         });
       }
     });
@@ -473,18 +469,14 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
   }, [logs, trainingPlan]);
 
   const completionPct = useMemo(() => {
-    let keyCount = 0;
-    let completedKeyCount = 0;
+    let keyCount = 0; let completedKeyCount = 0;
     const skippedIds = new Set(logs.filter(l => l.isSkipped).map(l => l.dayId));
     const loggedIds = new Set(logs.filter(l => !l.isSkipped).map(l => l.dayId));
-
     trainingPlan.forEach((w, wIndex) => {
       w.days.forEach(d => {
         if (d.req && d.req.trim() !== "") {
           keyCount++;
-          if (loggedIds.has(d.id) || (wIndex < 6 && !skippedIds.has(d.id))) {
-            completedKeyCount++;
-          }
+          if (loggedIds.has(d.id) || (wIndex < 6 && !skippedIds.has(d.id))) completedKeyCount++;
         }
       });
     });
@@ -493,10 +485,7 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
 
   const totalMiles = logs.filter(l => !l.isSkipped).reduce((a,c)=>a+(Number(c.distance)||0),0);
 
-  const openLogModal = (dayData, weekData) => {
-    setSelectedDay({ ...dayData, week: weekData.week });
-    setLogModalOpen(true);
-  };
+  const openLogModal = (dayData, weekData) => { setSelectedDay({ ...dayData, week: weekData.week }); setLogModalOpen(true); };
 
   const updateWorkout = async (weekIndex, dayId, reqText, optText) => {
     const updatedPlan = [...trainingPlan];
@@ -514,22 +503,15 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
     if (!user) return null;
     try {
       if (profile?.stravaConnected) {
-        const profileRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid);
-        await updateDoc(profileRef, { stravaConnected: false, stravaAccessToken: null, stravaRefreshToken: null, stravaTokenExpiresAt: null });
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { stravaConnected: false, stravaAccessToken: null, stravaRefreshToken: null, stravaTokenExpiresAt: null });
         return null;
       } else {
-        if (!STRAVA_CLIENT_ID) {
-          return "Missing Keys in Code";
-        }
+        if (!STRAVA_CLIENT_ID) return "Missing Keys in Code";
         const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-        const authUrl = `https://www.strava.com/oauth/authorize?client_id=${STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${redirectUri}&approval_prompt=force&scope=activity:read_all`;
-        window.location.href = authUrl;
+        window.location.href = `https://www.strava.com/oauth/authorize?client_id=${STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${redirectUri}&approval_prompt=force&scope=activity:read_all`;
         return null;
       }
-    } catch (e) {
-      console.error(e);
-      return "Connection Error";
-    }
+    } catch (e) { console.error(e); return "Connection Error"; }
   };
 
   if (loading) return <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center text-pink-500 font-sans font-black uppercase tracking-widest"><Watch className="animate-spin w-12 h-12 mb-6" /> Mission Control...</div>;
@@ -567,18 +549,8 @@ const unsubRelay = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data
         )}
         {view === 'plan' && (
           isRaceDay 
-          ? <RaceDayPlanView 
-              relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile} profiles={teamProfiles} raceMeta={raceMeta}
-              logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} 
-              openLogModal={openLogModal} getLogForDay={(id)=>logs.find(l=>l.dayId===id && !l.isSkipped)} 
-              currentWeekNum={currentWeekNum} diffDays={diffDays} onEditDay={(day, weekIndex) => setPlanEditDay({ ...day, weekIndex })}
-            />
-          : <PlanView 
-              logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} 
-              openLogModal={openLogModal} getLogForDay={(id)=>logs.find(l=>l.dayId===id && !l.isSkipped)} 
-              currentWeekNum={currentWeekNum} diffDays={diffDays} onEditDay={(day, weekIndex) => setPlanEditDay({ ...day, weekIndex })}
-              user={user} db={db} appId={appId} profile={profile}
-            />
+          ? <RaceDayPlanView relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile} profiles={teamProfiles} raceMeta={raceMeta} logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} openLogModal={openLogModal} getLogForDay={(id)=>logs.find(l=>l.dayId===id && !l.isSkipped)} currentWeekNum={currentWeekNum} diffDays={diffDays} onEditDay={(day, weekIndex) => setPlanEditDay({ ...day, weekIndex })} />
+          : <PlanView logs={logs} trainingPlan={trainingPlan} completedLogIds={completedLogIds} openLogModal={openLogModal} getLogForDay={(id)=>logs.find(l=>l.dayId===id && !l.isSkipped)} currentWeekNum={currentWeekNum} diffDays={diffDays} onEditDay={(day, weekIndex) => setPlanEditDay({ ...day, weekIndex })} user={user} db={db} appId={appId} profile={profile} />
         )}
         {view === 'stats' && <StatsView logs={logs} trainingPlan={trainingPlan} profile={profile} />}
         {view === 'team' && <TeamView profiles={teamProfiles} relayLaps={relayLaps} user={user} db={db} appId={appId} currentProfile={profile} raceMeta={raceMeta} isRaceDay={isRaceDay} />}
@@ -611,19 +583,11 @@ function AuthScreen({ auth }) {
   const handleGhostLogin = async () => {
     if (adminKey !== ADMIN_SECRET_KEY) return;
     setLoading(true);
-    try {
-      await signInAnonymously(auth);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    try { await signInAnonymously(auth); } catch (err) { setError(err.message); } finally { setLoading(false); }
   };
   
   const handleSubmit = async (e) => { 
-    e.preventDefault(); 
-    setError(''); 
-    setLoading(true); 
+    e.preventDefault(); setError(''); setLoading(true); 
     try { 
       if (!isLogin) { 
         if (inviteCode !== TEAM_INVITE_CODE) throw new Error("Whoops! Incorrect Team Invite Code."); 
@@ -631,11 +595,7 @@ function AuthScreen({ auth }) {
       } else { 
         await signInWithEmailAndPassword(auth, email, password); 
       } 
-    } catch (err) { 
-      setError(err.message.replace('Firebase:', '').trim()); 
-    } finally { 
-      setLoading(false); 
-    } 
+    } catch (err) { setError(err.message.replace('Firebase:', '').trim()); } finally { setLoading(false); } 
   };
 
   return (
@@ -643,38 +603,29 @@ function AuthScreen({ auth }) {
       <div className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity grayscale" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} />
       <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative z-10">
         <div onClick={() => setClickCount(c => c + 1)} className="flex flex-col items-center mb-10 relative z-10 cursor-pointer select-none">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6 transition-transform active:scale-90">
-             <Flame className="w-8 h-8 text-white" />
-          </div>
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(236,72,153,0.4)] mb-6 transition-transform active:scale-90"><Flame className="w-8 h-8 text-white" /></div>
           <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">Blister Sisters</h1>
           <p className="text-[10px] text-pink-400 font-black uppercase tracking-[0.3em] mt-2">ENDURE 24</p>
         </div>
-        
         {error && (<div className="bg-rose-500/10 border border-rose-500/50 text-rose-400 text-[10px] font-black uppercase p-4 rounded-2xl mb-8 text-center tracking-widest">{error}</div>)}
-        
         <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
           {clickCount >= 5 && (
             <div className="bg-indigo-500/10 border border-indigo-500/50 p-4 rounded-2xl animate-in zoom-in duration-300">
                <div className="flex items-center text-indigo-400 text-[9px] font-black uppercase tracking-widest mb-2"><ShieldCheck className="w-3 h-3 mr-2" /> Admin Access Mode</div>
                <input type="password" value={adminKey} onChange={(e) => setAdminKey(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 font-black text-xs mb-3" placeholder="ENTER ACCESS KEY" />
-               {adminKey === ADMIN_SECRET_KEY && (
-                 <button type="button" onClick={handleGhostLogin} className="w-full bg-indigo-600 text-white font-black uppercase text-[9px] py-3 rounded-lg flex items-center justify-center"><Ghost className="w-3 h-3 mr-2" /> Enter as Ghost</button>
-               )}
+               {adminKey === ADMIN_SECRET_KEY && (<button type="button" onClick={handleGhostLogin} className="w-full bg-indigo-600 text-white font-black uppercase text-[9px] py-3 rounded-lg flex items-center justify-center"><Ghost className="w-3 h-3 mr-2" /> Enter as Ghost</button>)}
             </div>
           )}
-          
           {!isLogin && (<div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Team Invite Code</label><input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black tracking-widest" placeholder="Enter secret code" required /></div>)}
           <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
           <div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold" required /></div>
-          <button type="submit" disabled={loading} className={`w-full bg-pink-600 hover:bg-pink-500 shadow-pink-500/30 text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px] mt-6 transition-all`}>{loading ? 'Processing...' : (isLogin ? 'Login' : 'Join')}</button>
+          <button type="submit" disabled={loading} className="w-full bg-pink-600 hover:bg-pink-500 shadow-pink-500/30 text-white font-black uppercase tracking-[0.2em] py-5 rounded-2xl shadow-[0_0_20px] mt-6 transition-all">{loading ? 'Processing...' : (isLogin ? 'Login' : 'Join')}</button>
         </form>
         <button onClick={() => setIsLogin(!isLogin)} className="w-full mt-8 text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] hover:text-white transition-colors relative z-10">{isLogin ? "Sign up here" : "Return to Login"}</button>
       </div>
     </div>
   );
 }
-
-// ... rest of the helper components same as before ...
 
 function RelayBoard({ relayLaps, user, db, appId, currentProfile, profiles = [], raceMeta }) {
   const [editingLapId, setEditingLapId] = useState(null);
@@ -736,7 +687,6 @@ function TeamView({ profiles, relayLaps, user, db, appId, currentProfile, raceMe
   const [showSettings, setShowSettings] = useState(false);
   const sortedProfiles = [...profiles].sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
   useEffect(() => { if (isRaceDay && activeTab === 'relay') setActiveTab('roster'); }, [isRaceDay, activeTab]);
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black tracking-tight">Team</h2><button onClick={() => setShowSettings(true)} className="flex items-center bg-neutral-800 text-neutral-300 hover:text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors shadow-xl"><Settings className="w-3.5 h-3.5 mr-2" /> Event Settings</button></div>
@@ -759,13 +709,27 @@ function RaceSettingsModal({ raceMeta, db, appId, onClose, currentProfile }) {
   );
 }
 
-function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
+function RaceDayDashboard({ raceMeta: raceMetaProp, laps, user, db, appId, currentProfile }) {
+  // Local subscription — bypasses any prop-chain stale closure issues
+  const [raceMeta, setRaceMeta] = useState(raceMetaProp || {});
   const [elapsed, setElapsed] = useState('');
   const [tick, setTick] = useState(Date.now());
 
   useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'race_meta', 'main'), (s) => {
+      if (s.exists()) {
+        const d = s.data();
+        console.log('[RaceDayDashboard] categoryPos:', d.categoryPos, 'genderPos:', d.genderPos);
+        setRaceMeta(d);
+      }
+    });
+    return () => unsub();
+  }, [db, appId]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
-      const diff = Date.now() - (raceMeta.startTime || Date.now());
+      const start = raceMeta.startTime || RACE_START_FALLBACK;
+      const diff = Date.now() - start;
       if (diff < 0) { setElapsed('Starting Soon...'); return; }
       const hours = Math.floor(diff / 3600000);
       const mins  = Math.floor((diff % 3600000) / 60000);
@@ -785,19 +749,16 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
     ? laps.find(l => l.lapNumber > runningLap.lapNumber && (l.status === 'claimed' || l.status === 'open'))
     : laps.find(l => l.status === 'claimed' || l.status === 'open');
 
-  // ── Distance & pace from scraper durationMs ───────────────
+  // ── Distance & pace ───────────────────────────────────────
   const totalMiles = completedLaps.length * LAP_DISTANCE;
-
-  // Use durationMs from scraper where available, fall back to endTime-startTime
   const lapDurations = completedLaps
     .map(l => l.durationMs || (l.endTime && l.startTime ? l.endTime - l.startTime : null))
     .filter(Boolean);
-
   const totalDurationMs = lapDurations.reduce((a, b) => a + b, 0);
-  const avgLapMs        = lapDurations.length > 0 ? Math.round(totalDurationMs / lapDurations.length) : 0;
+  const avgLapMs = lapDurations.length > 0 ? Math.round(totalDurationMs / lapDurations.length) : 0;
   const avgPaceMinPerMile = totalMiles > 0 ? (totalDurationMs / 60000) / totalMiles : 0;
 
-  // ── Per-runner averages from raceMeta (written by scraper) ─
+  // ── Per-runner averages from scraper ──────────────────────
   const runnerAvgs = raceMeta?.runnerAvgs || {};
 
   // ── Running lap elapsed + est finish ──────────────────────
@@ -808,8 +769,6 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   const estFinishMs = runningLap?.startTime && runnerAvgMs
     ? runningLap.startTime + runnerAvgMs
     : null;
-
-  // ── On-deck estimated start = running lap est finish ──────
   const onDeckEstStart = estFinishMs;
 
   // ── Category & Gender position ────────────────────────────
@@ -846,7 +805,7 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
 
-      {/* ── RACE TIMER HEADER with position ── */}
+      {/* ── RACE TIMER + POSITIONS ── */}
       <div className="bg-gradient-to-br from-pink-600 to-rose-700 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
         <div className="relative z-10 flex justify-between items-start mb-4">
           <div>
@@ -859,13 +818,9 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
             </div>
           )}
         </div>
-
-        {/* Elapsed time */}
         <div className="relative z-10 text-center mb-6">
           <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter tabular-nums">{elapsed}</h2>
         </div>
-
-        {/* Category & Gender positions — loud and proud */}
         <div className="relative z-10 flex flex-wrap items-center justify-center gap-3">
           <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3 flex items-center justify-center gap-3 border border-white/20 flex-1 min-w-[130px]">
             <Trophy className="w-6 h-6 text-yellow-300 shrink-0" />
@@ -892,8 +847,6 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
 
       {/* ── ON COURSE + ON DECK ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-        {/* On Course */}
         <div className="bg-neutral-900 border border-pink-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden">
           <h3 className="text-xs font-black uppercase tracking-widest text-pink-500 mb-4 flex items-center">
             <span className="w-2 h-2 rounded-full bg-pink-500 animate-ping mr-2 shrink-0"></span>
@@ -908,8 +861,7 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
                   <p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Lap {String(runningLap.lapNumber)}</p>
                 </div>
               </div>
-              {/* Elapsed time for this runner */}
-              {runningElapsedMs !== null && (
+              {runningElapsedMs !== null && runningElapsedMs > 0 && (
                 <div className="bg-neutral-950/60 rounded-2xl p-4 mb-3 border border-neutral-800">
                   <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-black mb-1">Elapsed</div>
                   <div className="text-2xl font-black tabular-nums" style={{ color: '#00d4ff', textShadow: '0 0 16px rgba(0,212,255,0.4)' }}>
@@ -935,7 +887,6 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
           )}
         </div>
 
-        {/* On Deck */}
         <div className="bg-neutral-900 border border-teal-500/30 rounded-3xl p-6 shadow-xl">
           <h3 className="text-xs font-black uppercase tracking-widest text-teal-400 mb-4">On Deck</h3>
           {nextLap ? (
@@ -943,11 +894,10 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
               <div className="flex items-center space-x-3 mb-4">
                 <div className="text-3xl">🔥</div>
                 <div>
-                  <p className="text-xl font-black text-white">{String(nextLap.runnerName)}</p>
+                  <p className="text-xl font-black text-white">{String(nextLap.runnerName || 'TBC')}</p>
                   <p className="text-xs text-neutral-400 font-bold uppercase tracking-widest">Lap {String(nextLap.lapNumber)}</p>
                 </div>
               </div>
-              {/* Est start based on running lap's est finish */}
               <div className="bg-neutral-950/60 rounded-2xl p-4 border border-neutral-800">
                 <div className="flex justify-between text-xs mb-2">
                   <span className="text-neutral-500">Est. start</span>
@@ -964,9 +914,7 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
                 {onDeckEstStart && nextLap.runnerName && runnerAvgs[nextLap.runnerName] && (
                   <div className="flex justify-between text-xs mt-2">
                     <span className="text-neutral-500">Est. finish</span>
-                    <span className="font-bold text-neutral-200">
-                      {fmtTime(onDeckEstStart + runnerAvgs[nextLap.runnerName].avgMs)}
-                    </span>
+                    <span className="font-bold text-neutral-200">{fmtTime(onDeckEstStart + runnerAvgs[nextLap.runnerName].avgMs)}</span>
                   </div>
                 )}
               </div>
@@ -979,34 +927,10 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
 
       {/* ── 4 STAT CARDS ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          icon={<Activity />}
-          label="Team Distance"
-          val={displayDist(totalMiles, unitPref).toFixed(1)}
-          unit={unitPref}
-          color="text-pink-500"
-        />
-        <StatCard
-          icon={<Timer />}
-          label={`Avg Pace /${unitPref}`}
-          val={avgPaceMinPerMile > 0 ? fmtPace(avgPaceMinPerMile) : '--'}
-          unit={`per ${unitPref}`}
-          color="text-teal-400"
-        />
-        <StatCard
-          icon={<Gauge />}
-          label="Avg Lap Time"
-          val={fmtAvgLap(avgLapMs)}
-          unit="per lap"
-          color="text-purple-500"
-        />
-        <StatCard
-          icon={<Target />}
-          label="Laps Done"
-          val={completedLaps.length}
-          unit="laps"
-          color="text-indigo-400"
-        />
+        <StatCard icon={<Activity />} label="Team Distance" val={displayDist(totalMiles, unitPref).toFixed(1)} unit={unitPref} color="text-pink-500" />
+        <StatCard icon={<Timer />} label={`Avg Pace /${unitPref}`} val={avgPaceMinPerMile > 0 ? fmtPace(avgPaceMinPerMile) : '--'} unit={`per ${unitPref}`} color="text-teal-400" />
+        <StatCard icon={<Gauge />} label="Avg Lap Time" val={fmtAvgLap(avgLapMs)} unit="per lap" color="text-purple-500" />
+        <StatCard icon={<Target />} label="Laps Done" val={completedLaps.length} unit="laps" color="text-indigo-400" />
       </div>
 
       {/* ── COMPLETED LAP FEED ── */}
@@ -1020,9 +944,12 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
           </div>
           <div className="divide-y divide-neutral-800/50">
             {[...completedLaps].reverse().map(lap => {
-              const dur = lap.durationMs || (lap.endTime && lap.startTime ? lap.endTime - lap.startTime : null);
+              // Use rawTime from scraper for exact display — strip leading "00:" if hours = 0
+              const displayTime = lap.rawTime
+                ? fmtRawTime(lap.rawTime)
+                : (lap.durationMs ? fmtAvgLap(lap.durationMs) : '--');
               const runnerAvg = runnerAvgs[lap.runnerName]?.avgMs;
-              const isFast = runnerAvg && dur && dur < runnerAvg;
+              const isFast = runnerAvg && lap.durationMs && lap.durationMs < runnerAvg;
               return (
                 <div key={lap.lapNumber} className="flex items-center justify-between px-6 py-3 hover:bg-neutral-800/20 transition-colors">
                   <div className="flex items-center gap-3">
@@ -1033,7 +960,7 @@ function RaceDayDashboard({ raceMeta, laps, user, db, appId, currentProfile }) {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`font-black tabular-nums text-sm ${isFast ? 'text-teal-400' : 'text-neutral-200'}`}>
-                      {dur ? fmtAvgLap(dur) : lap.rawTime || '--'}
+                      {displayTime}
                     </span>
                     {isFast && <span className="text-[9px] text-teal-400 font-black uppercase tracking-widest">PB</span>}
                   </div>
@@ -1058,9 +985,7 @@ function DashboardView({ logs, openLogModal, todayWorkout, totalMiles, completio
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 relative overflow-hidden shadow-2xl group min-h-[180px]"><div className="absolute inset-0 bg-cover bg-center opacity-30 mix-blend-luminosity grayscale group-hover:scale-110 transition-transform duration-1000" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1552674605-15c371123a61?auto=format&fit=crop&w=1200&q=80')` }} /><div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent"></div><div className="relative z-10 flex justify-between items-start"><div><div className="inline-flex items-center space-x-2 bg-pink-500/20 border border-pink-500/30 text-pink-400 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest mb-6 backdrop-blur-sm shadow-xl"><CalendarDays className="w-3.5 h-3.5" /><span>Day {Number(currentDayNumber)} of 105</span></div><h2 className="text-3xl font-black text-white mb-3 tracking-tight leading-tight">Crush it{profile?.displayName ? `, ${String(profile.displayName).split(' ')[0]}` : ''}.</h2><p className="text-neutral-400 max-w-sm font-bold text-sm tracking-wide uppercase">Week {Number(currentWeekNum)} • Every mile counts!</p></div>{profile && (<div className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br ${String(profile.avatarBg)} flex items-center justify-center text-3xl md:text-4xl shadow-2xl border-2 border-white/20 shrink-0 ml-4`}>{String(profile.avatarEmoji)}</div>)}</div></div>
       <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 shadow-2xl"><div className="flex justify-between items-end mb-4"><h3 className="text-xs font-black text-neutral-500 uppercase tracking-[0.2em]">Endure Training Completion</h3><span className="text-2xl font-black text-white italic">{Number(completionPct)}%</span></div><div className="w-full bg-neutral-950 rounded-full h-4 border border-white/5 overflow-hidden relative shadow-inner"><div className="bg-gradient-to-r from-pink-600 via-rose-500 to-teal-400 h-full transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(236,72,153,0.3)]" style={{ width: `${completionPct}%` }}></div></div></div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-pink-500/30 transition-all"><Activity className="text-pink-500 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{displayDist(totalMiles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Distance Logged ({profile?.unitPref || 'mi'})</div></div></div><div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-teal-500/30 transition-all"><CalendarDays className="text-teal-400 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{Number(timeLeft.days)}d</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Until Race</div></div></div>
-        {SHOW_STRAVA_FEATURES && (<div className="col-span-2 bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex items-center justify-between shadow-2xl"><div className="flex items-center space-x-3"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${profile?.stravaConnected ? 'bg-[#FC4C02] text-white shadow-[0_0_15px_rgba(252,76,2,0.4)]' : 'bg-neutral-950 border border-neutral-800 text-neutral-500'}`}><StravaIcon className="w-6 h-6" /></div><div><h4 className="font-black text-white text-sm">Strava Integration</h4><p className="text-[10px] uppercase font-bold text-neutral-500 mt-0.5 tracking-widest">{profile?.stravaConnected ? 'Status: Connected' : (stravaErr ? <span className="text-rose-500">{stravaErr}</span> : 'Status: Offline')}</p></div></div>{profile?.stravaConnected ? (<div className="flex flex-col items-end"><button onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} className="text-[10px] text-neutral-500 hover:text-rose-500 font-bold uppercase tracking-widest mb-1.5 transition-colors">Disconnect</button><PoweredByStrava /></div>) : (<StravaConnectButton onClick={async () => { const err = await toggleStrava(); if(err) setStravaErr(err); }} />)}</div>)}
-      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-pink-500/30 transition-all"><Activity className="text-pink-500 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{displayDist(totalMiles, profile?.unitPref).toFixed(1)}</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Distance Logged ({profile?.unitPref || 'mi'})</div></div></div><div className="bg-neutral-900 rounded-3xl p-5 border border-neutral-800 flex flex-col justify-between shadow-2xl group hover:border-teal-500/30 transition-all"><CalendarDays className="text-teal-400 w-5 h-5 mb-2" /><div><div className="text-2xl font-black text-white">{Number(timeLeft.days)}d</div><div className="text-[10px] text-neutral-500 font-black uppercase tracking-widest mt-1">Until Race</div></div></div></div>
       <div><h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-pink-500 mb-5 flex items-center"><Flame className="w-4 h-4 mr-2" /> Current Objective</h3>{todayWorkout && !isTodayRest ? (<div onClick={() => openLogModal(todayWorkout.day, todayWorkout.week)} className="group cursor-pointer bg-neutral-900 border border-white/5 hover:border-pink-500/50 rounded-3xl p-6 transition-all relative overflow-hidden shadow-2xl"><div className="flex items-center justify-between mb-4"><p className="text-[10px] font-black bg-pink-500/20 text-pink-400 px-4 py-1.5 rounded-full uppercase tracking-widest border border-pink-500/20">Week {Number(todayWorkout.week.week)} • {String(todayWorkout.day.day)}</p><ArrowUpRight className="w-5 h-5 text-neutral-700 group-hover:text-pink-500 transition-colors" /></div><div className="space-y-4 relative z-10 pr-8">{todayWorkout.day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl shadow-inner flex flex-col items-start gap-2"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-base md:text-lg font-bold text-blue-100 leading-relaxed italic whitespace-pre-line">{String(todayWorkout.day.req)}</p></div>)}{todayWorkout.day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm md:text-base font-medium text-neutral-300 leading-relaxed italic whitespace-pre-line">{String(todayWorkout.day.opt)}</p></div>)}</div><div className="mt-6 flex items-center text-[10px] text-pink-500/60 uppercase font-black tracking-[0.2em] group-hover:text-pink-400 transition-colors"><Activity className="w-4 h-4 mr-2" /> Tap to log session</div></div>) : (<div className="bg-neutral-900/50 border border-neutral-800 rounded-3xl border-dashed p-8 text-center flex flex-col items-center justify-center"><span className="text-3xl mb-3 block">🧘‍♀️</span><p className="text-neutral-500 italic text-sm font-bold">Rest day! Recovery is training too.</p></div>)}</div>
     </div>
   );
@@ -1134,7 +1059,6 @@ function LogModal({ day, existingLog, onClose, db, user, appId, profile }) {
   const handleDelete = async () => { if (!user) return; if (!deleteConfirm) { setDeleteConfirm(true); setTimeout(() => setDeleteConfirm(false), 3000); return; } setSaving(true); try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'run_logs', day.id)); onClose(); } catch (err) { console.error(err); } finally { setSaving(false); } };
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayString = dayNames[day.id.split('-')[1] === 'mon' ? 0 : day.id.split('-')[1] === 'tue' ? 1 : day.id.split('-')[1] === 'wed' ? 2 : day.id.split('-')[1] === 'thu' ? 3 : day.id.split('-')[1] === 'fri' ? 4 : day.id.split('-')[1] === 'sat' ? 5 : 6];
-
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300"><div className="absolute inset-0" onClick={onClose}></div><div className="relative w-full max-w-md bg-neutral-900 rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"><div className="flex justify-between items-center p-7 border-b border-white/5"><div><h3 className="text-2xl font-black text-white italic">Log Run</h3><p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.2em] mt-1.5">Week {day.week} • {dayString}</p></div><button onClick={onClose} className="p-3 bg-neutral-800 text-neutral-400 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button></div><div className="p-7 overflow-y-auto"><div className="mb-8 space-y-4">{day.req && (<div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-2xl flex flex-col items-start gap-2 shadow-inner"><span className="bg-blue-500 text-white px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Key Workout</span><p className="text-sm font-bold text-blue-100 leading-relaxed whitespace-pre-line">{String(day.req)}</p></div>)}{day.opt && (<div className="bg-neutral-800/50 border border-white/10 p-4 rounded-2xl flex flex-col items-start gap-2"><span className="bg-neutral-700 border border-neutral-500 text-neutral-200 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm">Optional Workout</span><p className="text-sm font-medium text-neutral-300 leading-relaxed whitespace-pre-line">{String(day.opt)}</p></div>)}</div><form id="log-form" onSubmit={handleSave} className="space-y-6"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Date Completed</label><input type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-bold [color-scheme:dark]" /></div><div className="grid grid-cols-2 gap-5"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Distance ({profile?.unitPref || 'mi'})</label><input type="number" step="0.01" value={distance} onChange={(e) => setDistance(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Time (min)</label><input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-pink-500 font-black" /></div></div><div><div className="flex justify-between items-center mb-3"><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1">Effort Score</label><span className="text-xl font-black text-pink-500 italic">{effort}/10</span></div><input type="range" min="1" max="10" value={effort} onChange={(e) => setEffort(e.target.value)} className="w-full accent-pink-500 h-2 bg-neutral-800 rounded-full appearance-none" /></div><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-2 block">Session Notes</label><textarea rows="3" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-5 py-4 text-white text-sm resize-none focus:outline-none focus:border-pink-500 font-medium" placeholder="How did the blisters feel? Vibe?" /></div></form></div><div className="p-7 border-t border-white/5 bg-neutral-900/50 flex gap-4 pb-safe">{existingLog && (<button type="button" onClick={handleDelete} disabled={saving} className={`border font-black px-5 rounded-2xl transition-all shadow-lg flex items-center justify-center ${deleteConfirm ? 'bg-rose-500 text-white border-rose-500' : 'bg-neutral-800 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-500 border-neutral-700 hover:border-rose-500/50'}`}>{deleteConfirm ? 'Sure?' : <X className="w-5 h-5" />}</button>)}<button type="submit" form="log-form" disabled={saving} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl py-5 shadow-[0_0_25px_rgba(219,39,119,0.3)] transition-all transform active:scale-95">{saving ? 'Transmitting...' : 'Save Log'}</button></div></div></div>
   );
@@ -1148,7 +1072,6 @@ function ProfileSetupModal({ user, db, appId, existingProfile, onClose, onResetP
   const [saving, setSaving] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [isGhost, setIsGhost] = useState(existingProfile?.role === 'admin' || user?.isAnonymous);
-
   const handleSave = async (e) => { e.preventDefault(); if (!name.trim()) return; setSaving(true); try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { displayName: name, avatarEmoji, avatarBg, unitPref, role: isGhost ? 'admin' : 'member', createdAt: existingProfile ? existingProfile.createdAt : new Date().toISOString() }, { merge: true }); onClose(); } catch(err) { console.error(err); } finally { setSaving(false); } };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-in fade-in duration-300"><div className="bg-neutral-900 border border-white/5 rounded-[3rem] p-10 max-w-sm w-full shadow-2xl relative max-h-[95vh] overflow-y-auto">{(existingProfile || isGhost) && (<button onClick={onClose} className="absolute top-6 right-6 p-3 text-neutral-400 bg-neutral-800 rounded-full hover:text-white transition-colors shadow-lg"><X className="w-5 h-5" /></button>)}<div className="text-center mb-10 relative z-10"><div className={`w-24 h-24 rounded-full bg-gradient-to-br ${String(avatarBg)} flex items-center justify-center text-5xl shadow-2xl mx-auto mb-6 border-4 border-white/10 relative`}>{String(avatarEmoji)}{isGhost && <div className="absolute -bottom-1 -right-1 bg-indigo-600 p-1.5 rounded-full border-4 border-neutral-900"><ShieldCheck className="w-4 h-4 text-white" /></div>}</div><h2 className="text-2xl font-black text-white italic tracking-tight">{existingProfile ? 'Edit Profile' : 'Welcome, Sister.'}</h2>{isGhost && <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest mt-2">Active Ghost Protocol</p>}</div><form onSubmit={handleSave} className="space-y-8 text-left relative z-10"><div><label className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.2em] ml-1 mb-3 block">Runner Identity</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-5 text-white font-black focus:outline-none focus:border-pink-500 shadow-inner" placeholder="e.g. Speedy Sarah" required /></div>
